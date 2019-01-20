@@ -1,1 +1,2 @@
-This is a small consola app I wrote to help me with saving all my .nfo files for Plex to read and use in my library
+This small console app I wrote started out to just help me with saving all my .nfo files for Plex to read and use in my library.
+It is now grown to also convert my movies and add them to my movie Plex folders.
