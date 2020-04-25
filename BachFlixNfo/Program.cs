@@ -12,8 +12,6 @@ using System.Text;
 using System.Diagnostics;
 using BachFlixNfo;
 using System.Collections;
-using System.Net.Mail;
-using System.Net;
 
 namespace SheetsQuickstart
 {
@@ -25,7 +23,7 @@ namespace SheetsQuickstart
         private const string TEMP_MOVIES_TITLE_RANGE = "Temp!A2:2";
         private const string TEMP_MOVIES_DATA_RANGE = "Temp!A3:2001";
         private const string YOUTUBE_TITLE_RANGE = "YouTube!A2:2";
-        private const string YOUTUBE_DATA_RANGE = "YouTube!A3:1992";
+        private const string YOUTUBE_DATA_RANGE = "YouTube!A3:2344";
         private const string BONUS_TITLE_RANGE = "Bonus!A1:1";
         private const string BONUS_DATA_RANGE = "Bonus!A2:2036";
         private const string EPISODES_TITLE_RANGE = "Episodes!A1:1";
@@ -33,7 +31,7 @@ namespace SheetsQuickstart
         private const string TEMP_EPISODES_TITLE_RANGE = "Temp Episodes!A1:1";
         private const string TEMP_EPISODES_DATA_RANGE = "Temp Episodes!A2:1000";
 
-        // The following are the column titles for the Movies sheet.
+        // The following are the column titles for the Movies sheet. (I guess in case I change the column header I don't have to change it in so many places... but I've yet needed this)
         private const string DIRECTORY = "Directory";
         private const string CLEAN_TITLE = "Clean Title";
         private const string ISO_INPUT = "ISO Input";
@@ -102,7 +100,7 @@ namespace SheetsQuickstart
 
         static void Main(string[] args)
         {
-            Type("Hello, and welcome to the BachFlix NFO Filer 3000! v1.3.5", 0, 0, 1, "blue");
+            Type("Hello, and welcome to the BachFlix NFO Filer 3000!", 0, 0, 1, "blue");
 
             bool keepAskingForChoice = true;
 
@@ -256,8 +254,8 @@ namespace SheetsQuickstart
                     // A dictionary to hold the columns we need to find.
                     sheetVariables.Add(DIRECTORY, -1); // The path to the folder holding the movie.
                     sheetVariables.Add(CLEAN_TITLE, -1); // Concatenate the Clean Title to the Directory to save the NFO File.
-                    sheetVariables.Add("NFO Body", -1); // The text of the NFO File to save.
-                    sheetVariables.Add("Status", -1); // The Status of the movie i.e. if the movie should actually be there.
+                    sheetVariables.Add(NFO_BODY, -1); // The text of the NFO File to save.
+                    sheetVariables.Add(STATUS, -1); // The Status of the movie i.e. if the movie should actually be there.
 
                     titleRowDataRange = MOVIES_TITLE_RANGE;
                     mainDataRange = MOVIES_DATA_RANGE;
@@ -272,11 +270,11 @@ namespace SheetsQuickstart
                 {
                     Type("Insert selected NFO Files. Let's go!", 7, 100, 1);
                     // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add("Directory", -1); // The path to the folder holding the movie.
-                    sheetVariables.Add("Clean Title", -1); // Concatenate the Clean Title to the Directory to save the NFO File.
-                    sheetVariables.Add("NFO Body", -1); // The text of the NFO File to save.
-                    sheetVariables.Add("Status", -1); // The Status of the movie i.e. if the movie should actually be there.
-                    sheetVariables.Add("Quick Create", -1); // If this column has an 'X' then we write/overwrite the file.
+                    sheetVariables.Add(DIRECTORY, -1); // The path to the folder holding the movie.
+                    sheetVariables.Add(CLEAN_TITLE, -1); // Concatenate the Clean Title to the Directory to save the NFO File.
+                    sheetVariables.Add(NFO_BODY, -1); // The text of the NFO File to save.
+                    sheetVariables.Add(STATUS, -1); // The Status of the movie i.e. if the movie should actually be there.
+                    sheetVariables.Add(QUICK_CREATE, -1); // If this column has an 'X' then we write/overwrite the file.
 
                     titleRowDataRange = MOVIES_TITLE_RANGE;
                     mainDataRange = MOVIES_DATA_RANGE;
@@ -292,9 +290,10 @@ namespace SheetsQuickstart
                     Type("Create missing YouTube NFO Files. Let's go!", 7, 100, 1);
 
                     // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add("Directory", -1); // The path to the folder holding the video.
-                    sheetVariables.Add("Clean Title", -1); // Concatenate the Clean Title to the Directory to save the NFO File.
-                    sheetVariables.Add("NFO Body", -1); // The body of the NFO file.
+                    sheetVariables.Add(DIRECTORY, -1); // The path to the folder holding the movie.
+                    sheetVariables.Add(CLEAN_TITLE, -1); // Concatenate the Clean Title to the Directory to save the NFO File.
+                    sheetVariables.Add(NFO_BODY, -1); // The text of the NFO File to save.
+                    sheetVariables.Add(STATUS, -1); // The Status of the movie i.e. if the movie should actually be there.
 
                     titleRowDataRange = YOUTUBE_TITLE_RANGE;
                     mainDataRange = YOUTUBE_DATA_RANGE;
@@ -310,9 +309,10 @@ namespace SheetsQuickstart
                     Type("Overwrite ALL YouTube NFO Files. Let's go!", 7, 100, 1);
 
                     // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add("Directory", -1); // The path to the folder holding the video.
-                    sheetVariables.Add("Clean Title", -1); // Concatenate the Clean Title to the Directory to save the NFO File.
-                    sheetVariables.Add("NFO Body", -1); // The body of the NFO file.
+                    sheetVariables.Add(DIRECTORY, -1); // The path to the folder holding the movie.
+                    sheetVariables.Add(CLEAN_TITLE, -1); // Concatenate the Clean Title to the Directory to save the NFO File.
+                    sheetVariables.Add(NFO_BODY, -1); // The text of the NFO File to save.
+                    sheetVariables.Add(STATUS, -1); // The Status of the movie i.e. if the movie should actually be there.
 
                     titleRowDataRange = YOUTUBE_TITLE_RANGE;
                     mainDataRange = YOUTUBE_DATA_RANGE;
@@ -328,10 +328,11 @@ namespace SheetsQuickstart
                     Type("Create/Overwrite selected YouTube NFO Files. Let's go!", 7, 100, 1);
 
                     // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add("Directory", -1); // The path to the folder holding the video.
-                    sheetVariables.Add("Clean Title", -1); // Concatenate the Clean Title to the Directory to save the NFO File.
-                    sheetVariables.Add("NFO Body", -1); // The body of the NFO file.
-                    sheetVariables.Add("Quick Create", -1); // Create/Overwrite selected NFO files.
+                    sheetVariables.Add(DIRECTORY, -1); // The path to the folder holding the movie.
+                    sheetVariables.Add(CLEAN_TITLE, -1); // Concatenate the Clean Title to the Directory to save the NFO File.
+                    sheetVariables.Add(NFO_BODY, -1); // The text of the NFO File to save.
+                    sheetVariables.Add(STATUS, -1); // The Status of the movie i.e. if the movie should actually be there.
+                    sheetVariables.Add(QUICK_CREATE, -1); // Create/Overwrite selected NFO files.
 
                     titleRowDataRange = YOUTUBE_TITLE_RANGE;
                     mainDataRange = YOUTUBE_DATA_RANGE;
@@ -408,18 +409,8 @@ namespace SheetsQuickstart
                         // Filter out the files that aren't video files.
                         ArrayList videoFiles = GrabMovieFiles(fileEntries);
 
-                        // Send those video files off to be converted, and get a list back of the output files.
-                        ArrayList outputFiles = ConvertHandbrakeList(videoFiles);
-
-                        // With those output files remove the Metadata.
-                        RemoveMetadata(outputFiles);
-
-                        // Add a comment to each output file.
-                        DateTime convertedTime = DateTime.Now;
-                        foreach (string file in outputFiles)
-                        {
-                            AddComment(file, "Converted on: " + convertedTime.ToString("MM/dd/yyyy"));
-                        }
+                        // Send those video files off to be converted.
+                        ConvertHandbrakeList(videoFiles);
 
                         ResetGlobals();
                     }
@@ -1472,70 +1463,65 @@ namespace SheetsQuickstart
         /// <param name="sheetVariables">The dictionary that holds the column data.</param>
         /// <param name="type">The type of NFO file to write: 1 = ALL movies, 2 = Only selected movies, 3 = Only missing NFO Files.</param>
         /// <param name="trimFile">For the YouTube filenames we need to trim the title so we don't run into the character limit issue.</param>
-        protected static void CreateNfoFiles(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, int type, bool trimFile = false)
+        protected static void CreateNfoFiles(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, int type, bool isYouTubeFile = false)
         {
             int nfoFileNotFoundCount = 0, nfoFileOverwrittenCount = 0, nfoFileCreatedCount = 0;
 
             foreach (var row in data)
             {
-                if (row.Count > 4) // If it's an empty row then it should have less than this.
+                if (row[Convert.ToInt16(sheetVariables[CLEAN_TITLE])].ToString() != "")
                 {
                     var directoryFound = false;
-                    var cleanTitle = row[Convert.ToInt16(sheetVariables["Clean Title"])].ToString();
-                    var movieDirectory = row[Convert.ToInt16(sheetVariables["Directory"])].ToString();
-                    var nfoBody = row[Convert.ToInt16(sheetVariables["NFO Body"])].ToString();
+                    var cleanTitle = row[Convert.ToInt16(sheetVariables[CLEAN_TITLE])].ToString();
+                    var movieDirectory = row[Convert.ToInt16(sheetVariables[DIRECTORY])].ToString();
+                    var nfoBody = row[Convert.ToInt16(sheetVariables[NFO_BODY])].ToString();
+                    var status = "";
                     var quickCreate = "";
                     var quickCreateInt = 0;
 
-                    cleanTitle = trimFile ? cleanTitle.Substring(0, 20) : cleanTitle;
+                    // If we are creating NFO files for YouTube videos then we need to trim the titles,
+                    // also, we don't need to worry about checking for status.
+                    if (isYouTubeFile)
+                    {
+                        if (cleanTitle.Length > 20)
+                        {
+                            cleanTitle = cleanTitle.Substring(0, 20).Trim();
+                        }
+                    } else
+                    {
+                        status = row[Convert.ToInt16(sheetVariables[STATUS])].ToString();
+                    }
 
                     try
                     {
 
                         if (sheetVariables.ContainsKey("Quick Create") && row.Count > Convert.ToInt16(sheetVariables["Quick Create"]))
                         {
-                            quickCreate = row[Convert.ToInt16(sheetVariables["Quick Create"])].ToString();
-                            quickCreateInt = Convert.ToInt16(sheetVariables["Quick Create"]);
+                            quickCreate = row[Convert.ToInt16(sheetVariables[QUICK_CREATE])].ToString();
+                            quickCreateInt = Convert.ToInt16(sheetVariables[QUICK_CREATE]);
                         }
 
-                        // Let's go ahead and look for the hard drive letter now.
-                        var hardDriveLetter = FindDriveLetter(movieDirectory);
 
-                        if (hardDriveLetter != "")
+                        if (isYouTubeFile || (!status.Equals("") && status[0].ToString().ToUpper() != "X"))
                         {
-                            // Now that we found the hard drive letter let's create the full path variable to check for the directory.
-                            var pathWithDriveLetter = hardDriveLetter + movieDirectory;
-                            if(Directory.Exists(pathWithDriveLetter))
+                            // Let's go ahead and look for the hard drive letter now.
+                            var hardDriveLetter = FindDriveLetter(movieDirectory);
+
+                            if (hardDriveLetter != "")
                             {
-                                directoryFound = true;
-                                string fileLocation = pathWithDriveLetter + "\\" + cleanTitle + ".nfo";
-
-                                if (type == 1) // All movies, overwrite old NFO files AND put in new ones, but only if the folder exists (I don't want folders with only NFO files sitting in them).
+                                // Now that we found the hard drive letter let's create the full path variable to check for the directory.
+                                var pathWithDriveLetter = hardDriveLetter + movieDirectory;
+                                if (Directory.Exists(pathWithDriveLetter))
                                 {
+                                    directoryFound = true;
+                                    string fileLocation = pathWithDriveLetter + "\\" + cleanTitle + ".nfo";
 
-                                    if (File.Exists(fileLocation))
+                                    if (type == 1) // All movies, overwrite old NFO files AND put in new ones, but only if the folder exists (I don't want folders with only NFO files sitting in them).
                                     {
-                                        File.Delete(fileLocation);
-                                        nfoFileOverwrittenCount++;
-                                        Type("NFO overwritten at: " + fileLocation, 0, 0, 1, "Blue");
-
-                                    }
-                                    else
-                                    {
-                                        nfoFileCreatedCount++;
-                                        Type("NFO created at: " + fileLocation, 0, 0, 1, "Green");
-                                    }
-                                    WriteNfoFile(fileLocation, nfoBody);
-
-                                }
-                                else if (type == 2) // Only selected movies marked with an x.
-                                {
-                                    if (row.Count > quickCreateInt && quickCreate.ToUpper() == "X")
-                                    {
-                                        WriteNfoFile(fileLocation, nfoBody);
 
                                         if (File.Exists(fileLocation))
                                         {
+                                            File.Delete(fileLocation);
                                             nfoFileOverwrittenCount++;
                                             Type("NFO overwritten at: " + fileLocation, 0, 0, 1, "Blue");
 
@@ -1545,33 +1531,54 @@ namespace SheetsQuickstart
                                             nfoFileCreatedCount++;
                                             Type("NFO created at: " + fileLocation, 0, 0, 1, "Green");
                                         }
-
-                                    }
-
-                                }
-                                else if (type == 3) // Only the movies that are missing NFO files.
-                                {
-                                    if (!File.Exists(fileLocation))
-                                    {
                                         WriteNfoFile(fileLocation, nfoBody);
-                                        nfoFileCreatedCount++;
-                                        Type("NFO created at: " + fileLocation, 0, 0, 1, "Green");
+
+                                    }
+                                    else if (type == 2) // Only selected movies marked with an x.
+                                    {
+                                        if (row.Count > quickCreateInt && quickCreate.ToUpper() == "X")
+                                        {
+                                            WriteNfoFile(fileLocation, nfoBody);
+
+                                            if (File.Exists(fileLocation))
+                                            {
+                                                nfoFileOverwrittenCount++;
+                                                Type("NFO overwritten at: " + fileLocation, 0, 0, 1, "Blue");
+
+                                            }
+                                            else
+                                            {
+                                                nfoFileCreatedCount++;
+                                                Type("NFO created at: " + fileLocation, 0, 0, 1, "Green");
+                                            }
+
+                                        }
+
+                                    }
+                                    else if (type == 3) // Only the movies that are missing NFO files.
+                                    {
+                                        if (!File.Exists(fileLocation))
+                                        {
+                                            WriteNfoFile(fileLocation, nfoBody);
+                                            nfoFileCreatedCount++;
+                                            Type("NFO created at: " + fileLocation, 0, 0, 1, "Green");
+                                        }
                                     }
                                 }
-                            }
-                                
-                        }
-                        else
-                        {
-                            directoryFound = true; // However, it will still try to spit out that it couldn't find the directory, so just set it to true.
-                            Type("We did not find the hard drive for: " + movieDirectory, 0, 0, 1, "Red");
-                            nfoFileNotFoundCount++;
-                        }
 
-                        if (!directoryFound)
-                        {
-                            Type("We did not find the directory for: " + movieDirectory, 0, 0, 1, "Red");
-                            nfoFileNotFoundCount++;
+                            }
+                            else
+                            {
+                                directoryFound = true; // However, it will still try to spit out that it couldn't find the directory, so just set it to true.
+                                Type("We did not find the hard drive for: " + movieDirectory, 0, 0, 1, "Red");
+                                nfoFileNotFoundCount++;
+                            }
+
+                            if (!directoryFound)
+                            {
+                                Type("We did not find the directory for: " + movieDirectory, 0, 0, 1, "Red");
+                                nfoFileNotFoundCount++;
+                            }
                         }
                     }
                     catch (Exception e)
@@ -2774,7 +2781,7 @@ namespace SheetsQuickstart
             return directory;
         } // End AskForDirectory()
 
-        protected static ArrayList ConvertHandbrakeList(ArrayList videoFiles)
+        protected static void ConvertHandbrakeList(ArrayList videoFiles)
         {
             Type("Now converting " + videoFiles.Count + " files... ", 10, 0, 1, "Yellow");
 
@@ -2828,7 +2835,6 @@ namespace SheetsQuickstart
 
                 Type("DONE", 100, 0, 1, "Green");
 
-                return outputFiles;
             }
             catch (Exception e)
             {
