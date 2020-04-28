@@ -1469,6 +1469,7 @@ namespace SheetsQuickstart
 
             foreach (var row in data)
             {
+                Console.WriteLine("CleanTitle: " + row[Convert.ToInt16(sheetVariables[CLEAN_TITLE])].ToString());
                 if (row[Convert.ToInt16(sheetVariables[CLEAN_TITLE])].ToString() != "")
                 {
                     var directoryFound = false;
@@ -2373,6 +2374,9 @@ namespace SheetsQuickstart
                 // Get the output into a string
                 string result = proc.StandardOutput.ReadToEnd();
 
+                // Display the command output.
+                //Console.WriteLine(result);
+
                 // Display the time the conversion ended.
                 DateTime endTime = DateTime.Now;
                 Type("End Time: ", 0, 0, 0, "Blue");
@@ -2406,10 +2410,6 @@ namespace SheetsQuickstart
                     }
                     if (timeLeftInMinutes > 60)
                     {
-                        //if (daysRemaining > 0)
-                        //{
-                        //    int timeLeftMinusDays = ((int)timeLeftInMinutes - (daysRemaining * DAY)) / 60;
-                        //}
                         hoursRemaining = (daysRemaining > 0 ? ((int)timeLeftInMinutes - (daysRemaining * 1440)) / 60 : (int)timeLeftInMinutes / 60);
                         ETR += hoursRemaining.ToString() + (hoursRemaining == 1 ? " hour, " : " hours, ");
                     }
@@ -2417,14 +2417,11 @@ namespace SheetsQuickstart
                     minutesRemaining = (int)timeLeftInMinutes % 60;
 
                     ETR += minutesRemaining.ToString() + (minutesRemaining == 1 ? " minute remaining" : " minutes remaining");
-                    //TimeSpan ETR = new TimeSpan(timeLeft);
                     Type("ETR: ", 0, 0, 0, "Blue");
                     Type(ETR, 0, 0, 1, "Red");
                     Type("(Based on the time it took to convert that last one)", 0, 0, 1);
                 }
 
-                // Display the command output.
-                //Console.WriteLine(result);
             }
             catch (Exception objException)
             {
