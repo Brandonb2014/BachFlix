@@ -87,7 +87,8 @@ namespace SheetsQuickstart
             removeMetadataChoice,
             createFoldersAndMoveFilesChoice,
             trimTitlesInDirectoryChoice,
-            bothTrimAndCreateFoldersChoice;
+            bothTrimAndCreateFoldersChoice,
+            findSizeOfVideoFilesInDirectoryChoice;
 
         private const int STARTING_ROW_NUMBER = 3;
         static TimeSpan runningTotalConversionTime = new TimeSpan();
@@ -210,6 +211,8 @@ namespace SheetsQuickstart
             Type(trimTitlesInDirectoryChoice + "- Trim titles in chosen directory.", 0, 0, 1, "darkyellow");
             bothTrimAndCreateFoldersChoice = "23";
             Type(bothTrimAndCreateFoldersChoice + "- Trim the titles AND create directories then move files into directories.", 0, 0, 1, "darkyellow");
+            findSizeOfVideoFilesInDirectoryChoice = "24";
+            Type(findSizeOfVideoFilesInDirectoryChoice + "- Give the size of video files in a directory.", 0, 0, 1, "darkyellow");
 
             return Console.ReadLine().Split(',');
 
@@ -409,10 +412,45 @@ namespace SheetsQuickstart
                         // Filter out the files that aren't video files.
                         ArrayList videoFiles = GrabMovieFiles(fileEntries);
 
+                        long sizeOfFiles = SizeOfFiles(videoFiles);
+
+                        string sizeInText = FormatSize(sizeOfFiles);
+
+                        string plural = videoFiles.Count == 1 ? " file " : " files ";
+
+                        Type("The size of the " + videoFiles.Count + plural + "is: ", 0, 0, 0, "Blue");
+                        Type(sizeInText, 0, 0, 1, "Cyan");
+
                         // Send those video files off to be converted.
                         ConvertHandbrakeList(videoFiles);
 
                         ResetGlobals();
+                    }
+
+                }
+                else if (choice.Trim().Equals(findSizeOfVideoFilesInDirectoryChoice)) // Find the size of video files in a directory.
+                {
+                    Type("Find the size of video files in a directory. Let's go!", 7, 100, 1);
+                    var directory = AskForDirectory();
+
+                    if (directory != "0")
+                    {
+                        // Grab all files in the directory.
+                        Type("Grabbing all files... ", 10, 0, 0, "Yellow");
+                        string[] fileEntries = Directory.GetFiles(directory);
+                        Type("DONE", 100, 0, 1, "Green");
+
+                        // Filter out the files that aren't video files.
+                        ArrayList videoFiles = GrabMovieFiles(fileEntries);
+
+                        long sizeOfFiles = SizeOfFiles(videoFiles);
+
+                        string sizeInText = FormatSize(sizeOfFiles);
+
+                        string plural = videoFiles.Count == 1 ? " file " : " files ";
+
+                        Type("The size of the " + videoFiles.Count + plural + "is: ", 0, 0, 0, "Blue");
+                        Type(sizeInText, 0, 0, 1, "Cyan");
                     }
 
                 }
@@ -846,16 +884,74 @@ namespace SheetsQuickstart
             Type("Grabbing just the video files... ", 10, 0, 0, "Yellow");
             ArrayList videoFiles = new ArrayList();
 
-            foreach (string file in files)
+            try
             {
-                if (file.ToUpper().Contains(".MP4") || file.ToUpper().Contains(".MKV") || file.ToUpper().Contains(".M4V") || file.ToUpper().Contains(".AVI"))
+                foreach (string file in files)
                 {
-                    videoFiles.Add(file);
+                    if (file.ToUpper().Contains(".MP4") || file.ToUpper().Contains(".MKV") || file.ToUpper().Contains(".M4V") || file.ToUpper().Contains(".AVI") || file.ToUpper().Contains(".WEBM"))
+                    {
+                        videoFiles.Add(file);
+                    }
                 }
+                Type("DONE", 100, 0, 1, "Green");
+                return videoFiles;
             }
+            catch (Exception e)
+            {
+                Type("An error occured!", 0, 0, 1, "Red");
+                Type(e.Message, 0, 0, 1, "DarkRed");
+                throw;
+            }
+            
+        }
 
-            Type("DONE", 100, 0, 1, "Green");
-            return videoFiles;
+        private static long SizeOfFiles(ArrayList files)
+        {
+            long fileSize = new long();
+
+            try
+            {
+                foreach (string file in files)
+                {
+                    if (File.Exists(file))
+                    {
+                        fileSize += new FileInfo(file).Length;
+                    }
+                }
+
+                return fileSize;
+            }
+            catch (Exception e)
+            {
+                Type("An error occured!", 0, 0, 1, "Red");
+                Type(e.Message, 0, 0, 1, "DarkRed");
+                throw;
+            }
+        }
+
+        protected static long DifferenceInBytes(string file1, string file2)
+        {
+            ArrayList arrayList1 = new ArrayList();
+            ArrayList arrayList2 = new ArrayList();
+
+            arrayList1.Add(file1);
+            arrayList2.Add(file2);
+
+            return SizeOfFiles(arrayList1) - SizeOfFiles(arrayList2);
+        }
+
+        static readonly string[] suffixes =
+            { "Bytes", "KB", "MB", "GB", "TB", "PB" };
+        public static string FormatSize(Int64 bytes)
+        {
+            int counter = 0;
+            decimal number = (decimal)bytes;
+            while (Math.Round(number / 1024) >= 1)
+            {
+                number = number / 1024;
+                counter++;
+            }
+            return string.Format("{0:n1}{1}", number, suffixes[counter]);
         }
 
         /// <summary>
@@ -1155,7 +1251,7 @@ namespace SheetsQuickstart
                                     }
                                     else
                                     {
-                                        Type("An error occured!", 0, 0, 1, "RED");
+                                        Type("An error occured!", 0, 0, 1, "Red");
                                         text += ImdbTitle + " Failed, ";
                                     }
                                 } else
@@ -1204,7 +1300,7 @@ namespace SheetsQuickstart
                                     }
                                     else
                                     {
-                                        Type("An error occured!", 0, 0, 1, "RED");
+                                        Type("An error occured!", 0, 0, 1, "Red");
                                         text += ImdbTitle + " Failed, ";
                                     }
 
@@ -1219,7 +1315,7 @@ namespace SheetsQuickstart
                                     }
                                     else
                                     {
-                                        Type("An error occured!", 0, 0, 1, "RED");
+                                        Type("An error occured!", 0, 0, 1, "Red");
                                         text += ImdbTitle + " Failed, ";
                                     }
 
@@ -1808,7 +1904,7 @@ namespace SheetsQuickstart
             }
             catch (Exception ex)
             {
-                Type("An error has occured: " + ex.Message, 0, 0, 1, "red");
+                Type("An error has occured: " + ex.Message, 0, 0, 1, "Red");
                 throw;
             }
 
@@ -1943,7 +2039,7 @@ namespace SheetsQuickstart
                                     }
                                     else
                                     {
-                                        Type("An error occured writing the ID!", 0, 0, 1, "RED");
+                                        Type("An error occured writing the ID!", 0, 0, 1, "Red");
                                         text += imdbTitle + " Failed to write ID, ";
                                     }
                                 }
@@ -1967,7 +2063,7 @@ namespace SheetsQuickstart
                                     }
                                     else
                                     {
-                                        Type("An error occured writing the Rating!", 0, 0, 1, "RED");
+                                        Type("An error occured writing the Rating!", 0, 0, 1, "Red");
                                         text += imdbTitle + " Failed to write Rating, ";
                                     }
                                 }
@@ -1991,7 +2087,7 @@ namespace SheetsQuickstart
                                     }
                                     else
                                     {
-                                        Type("An error occured writing the Plot!", 0, 0, 1, "RED");
+                                        Type("An error occured writing the Plot!", 0, 0, 1, "Red");
                                         text += imdbTitle + " Failed to write Plot, ";
                                     }
                                 }
@@ -2190,7 +2286,7 @@ namespace SheetsQuickstart
                     }
                     catch (Exception e)
                     {
-                        Type("Something went wrong converting the following video: " + title, 3, 100, 1, "red");
+                        Type("Something went wrong converting the following video: " + title, 3, 100, 1, "Red");
                         Type(e.Message, 3, 100, 2, "DarkRed");
                         break;
                     }
@@ -2380,7 +2476,7 @@ namespace SheetsQuickstart
                 // Display the time the conversion ended.
                 DateTime endTime = DateTime.Now;
                 Type("End Time: ", 0, 0, 0, "Blue");
-                Type(endTime.ToString("MM/dd/yyyy, h:mm:ss tt"), 0, 0, 1, "DarkBlue");
+                Type(endTime.ToString("MM/dd/yyyy, h:mm:ss tt"), 0, 0, 1, "Cyan");
 
                 // Display the amount of time that conversion took.
                 TimeSpan duration = endTime - startTime;
@@ -2750,7 +2846,7 @@ namespace SheetsQuickstart
                 Type(variable.Key.ToString() + ": " + variable.Value.ToString(), 1, 100, 1, fontColor);
                 i++;
             }
-            Type("It looks like that's the end of it.", 0, 0, 1);
+            //Type("It looks like that's the end of it.", 0, 0, 1);
         } // End DisplayResults()
 
         protected static string AskForDirectory()
@@ -2788,6 +2884,7 @@ namespace SheetsQuickstart
             try
             {
                 int count = 1;
+                long runningDifference = 0;
                 foreach (var myFile in videoFiles)
                 {
                     Type("Converting " + count + " of " + videoFiles.Count + " files", 0, 0, 1, "Blue");
@@ -2808,9 +2905,18 @@ namespace SheetsQuickstart
 
                         HandBrake(strMyConversionString, videoFiles.Count - count);
 
+                        // Display the amount of bytes that conversion saved.
+                        long difference = DifferenceInBytes(i, o);
+                        Type("Conversion savings: ", 0, 0, 0, "Blue");
+                        Type(FormatSize(difference), 0, 0, 1, "Yellow");
+
+                        // Add the difference to display the total running difference in bytes.
+                        runningDifference += difference;
+                        Type("Total savings: ", 0, 0, 0, "Blue");
+                        Type(FormatSize(runningDifference), 0, 0, 1, "Cyan");
+
                         // Remove the Metadata.
                         RemoveMetadata(outputFiles);
-
 
                         // Add a comment to the file.
                         DateTime convertedTime = DateTime.Now;
