@@ -2901,6 +2901,10 @@ namespace SheetsQuickstart
                     {
                         outputFiles.Add(o);
 
+                        ArrayList inputArrayList = new ArrayList();
+                        inputArrayList.Add(i);
+                        long sizeOfInputFile = SizeOfFiles(inputArrayList);
+
                         string strMyConversionString = "HandBrakeCLI -i \"" + i + "\" -o \"" + o + "\" " + presetChoice;
 
                         Type("Now converting: " + fileName, 0, 0, 1, "Magenta");
@@ -2910,7 +2914,7 @@ namespace SheetsQuickstart
                         // Display the amount of bytes that conversion saved.
                         long difference = DifferenceInBytes(i, o);
                         Type("Conversion savings: ", 0, 0, 0, "Blue");
-                        Type(FormatSize(difference), 0, 0, 1, "Yellow");
+                        Type(FormatSize(difference) + " of " + FormatSize(sizeOfInputFile), 0, 0, 1, "Yellow");
 
                         // Add the difference to display the total running difference in bytes.
                         runningDifference += difference;
