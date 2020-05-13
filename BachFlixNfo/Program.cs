@@ -90,6 +90,8 @@ namespace SheetsQuickstart
             bothTrimAndCreateFoldersChoice,
             findSizeOfVideoFilesInDirectoryChoice;
 
+        static string fileSize;
+
         private const int STARTING_ROW_NUMBER = 3;
         static TimeSpan runningTotalConversionTime = new TimeSpan();
 
@@ -414,12 +416,12 @@ namespace SheetsQuickstart
 
                         long sizeOfFiles = SizeOfFiles(videoFiles);
 
-                        string sizeInText = FormatSize(sizeOfFiles);
+                        fileSize = FormatSize(sizeOfFiles);
 
                         string plural = videoFiles.Count == 1 ? " file " : " files ";
 
                         Type("The size of the " + videoFiles.Count + plural + "is: ", 0, 0, 0, "Blue");
-                        Type(sizeInText, 0, 0, 1, "Cyan");
+                        Type(fileSize, 0, 0, 1, "Cyan");
 
                         // Send those video files off to be converted.
                         ConvertHandbrakeList(videoFiles);
@@ -2913,7 +2915,7 @@ namespace SheetsQuickstart
                         // Add the difference to display the total running difference in bytes.
                         runningDifference += difference;
                         Type("Total savings: ", 0, 0, 0, "Blue");
-                        Type(FormatSize(runningDifference), 0, 0, 1, "Cyan");
+                        Type(FormatSize(runningDifference) + " of " + fileSize + " saved", 0, 0, 1, "Cyan");
 
                         // Remove the Metadata.
                         RemoveMetadata(outputFiles);
