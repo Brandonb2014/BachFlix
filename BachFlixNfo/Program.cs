@@ -91,6 +91,8 @@ namespace SheetsQuickstart
             findSizeOfVideoFilesInDirectoryChoice;
 
         static string fileSize;
+        static long fileSizeBytes;
+        static long runningDifference = 0;
 
         private const int STARTING_ROW_NUMBER = 3;
         static TimeSpan runningTotalConversionTime = new TimeSpan();
@@ -414,9 +416,9 @@ namespace SheetsQuickstart
                         // Filter out the files that aren't video files.
                         ArrayList videoFiles = GrabMovieFiles(fileEntries);
 
-                        long sizeOfFiles = SizeOfFiles(videoFiles);
+                        fileSizeBytes = SizeOfFiles(videoFiles);
 
-                        fileSize = FormatSize(sizeOfFiles);
+                        fileSize = FormatSize(fileSizeBytes);
 
                         string plural = videoFiles.Count == 1 ? " file " : " files ";
 
@@ -929,17 +931,6 @@ namespace SheetsQuickstart
                 Type(e.Message, 0, 0, 1, "DarkRed");
                 throw;
             }
-        }
-
-        protected static long DifferenceInBytes(string file1, string file2)
-        {
-            ArrayList arrayList1 = new ArrayList();
-            ArrayList arrayList2 = new ArrayList();
-
-            arrayList1.Add(file1);
-            arrayList2.Add(file2);
-
-            return SizeOfFiles(arrayList1) - SizeOfFiles(arrayList2);
         }
 
         static readonly string[] suffixes =
@@ -2886,7 +2877,6 @@ namespace SheetsQuickstart
             try
             {
                 int count = 1;
-                long runningDifference = 0;
                 foreach (var myFile in videoFiles)
                 {
                     Type("Converting " + count + " of " + videoFiles.Count + " files", 0, 0, 1, "Blue");
@@ -2896,14 +2886,18 @@ namespace SheetsQuickstart
                     string i = myFile.ToString(),
                             o = pathRoot + "These are finished running through HandBrake\\" + fileName,
                             presetChoice = "--preset-import-file MP4_RF22f.json -Z \"MP4 RF22f\"";
-                    
+
+
+                    ArrayList inputArrayList = new ArrayList();
+                    inputArrayList.Add(i);
+                    long sizeOfInputFile = SizeOfFiles(inputArrayList);
+                    ArrayList outputArrayList = new ArrayList();
+                    outputArrayList.Add(o);
+                    long sizeOfOutputFile = SizeOfFiles(outputArrayList);
+
                     if (!File.Exists(o))
                     {
                         outputFiles.Add(o);
-
-                        ArrayList inputArrayList = new ArrayList();
-                        inputArrayList.Add(i);
-                        long sizeOfInputFile = SizeOfFiles(inputArrayList);
 
                         string strMyConversionString = "HandBrakeCLI -i \"" + i + "\" -o \"" + o + "\" " + presetChoice;
 
@@ -2912,14 +2906,7 @@ namespace SheetsQuickstart
                         HandBrake(strMyConversionString, videoFiles.Count - count);
 
                         // Display the amount of bytes that conversion saved.
-                        long difference = DifferenceInBytes(i, o);
-                        Type("Conversion savings: ", 0, 0, 0, "Blue");
-                        Type(FormatSize(difference) + " of " + FormatSize(sizeOfInputFile), 0, 0, 1, "Yellow");
-
-                        // Add the difference to display the total running difference in bytes.
-                        runningDifference += difference;
-                        Type("Total savings: ", 0, 0, 0, "Blue");
-                        Type(FormatSize(runningDifference) + " of " + fileSize + " saved", 0, 0, 1, "Cyan");
+                        DisplaySavings(sizeOfOutputFile, sizeOfInputFile);
 
                         // Remove the Metadata.
                         RemoveMetadata(outputFiles);
@@ -2935,6 +2922,9 @@ namespace SheetsQuickstart
                         outputFiles.Clear();
                     } else
                     {
+                        // Display the amount of bytes that conversion saved.
+                        DisplaySavings(sizeOfOutputFile, sizeOfInputFile);
+
                         Type(fileName + " already exists at destination. --Skipping to next file.", 0, 0, 1, "Yellow");
                     }
 
@@ -2951,6 +2941,24 @@ namespace SheetsQuickstart
                 throw;
             }
         } // End ConvertHandbrakeList()
+
+        protected static void DisplaySavings(long oFile, long iFile)
+        {
+            // Display the amount of bytes that conversion saved.
+            long difference = iFile - oFile;
+            Type("Conversion savings: ", 0, 0, 0, "Blue");
+            Type(FormatSize(difference) + " of " + FormatSize(iFile) + " " + FormatPercentage(oFile, iFile) + "%", 0, 0, 1, "Yellow");
+
+            // Add the difference to display the total running difference in bytes.
+            runningDifference += difference;
+            Type("Total savings: ", 0, 0, 0, "Blue");
+            Type(FormatSize(runningDifference) + " of " + fileSize + " " + FormatPercentage(runningDifference, fileSizeBytes) + "% saved", 0, 0, 1, "Cyan");
+        }
+
+        protected static string FormatPercentage(long oFile, long iFile)
+        {
+            return ((decimal.Parse(oFile.ToString()) / decimal.Parse(iFile.ToString())) * 100).ToString("N2");
+        }
 
         protected static void DisplayEndOfCurrentProcessLines()
         {
