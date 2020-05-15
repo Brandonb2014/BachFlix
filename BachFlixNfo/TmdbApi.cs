@@ -1,7 +1,7 @@
 ﻿using Newtonsoft.Json;
 using RestSharp;
 
-namespace BachFlixNfo
+namespace TmdbApiCall
 {
     class TmdbApi
     {
@@ -28,6 +28,7 @@ namespace BachFlixNfo
 
         /// <summary>
         /// You can use this method to check if a movie has already been added to the list.
+        /// NOT CURRENTLY WORKING DUE TO DOUBLE OAUTH.
         /// </summary>
         /// <param name="TmdbId"></param>
         /// <returns></returns>
@@ -45,6 +46,7 @@ namespace BachFlixNfo
 
         /// <summary>
         /// Remove a movie from a list.
+        /// NOT CURRENTLY WORKING DUE TO DOUBLE OAUTH.
         /// </summary>
         /// <param name="TmdbId"></param>
         /// <returns></returns>

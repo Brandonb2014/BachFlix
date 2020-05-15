@@ -10,7 +10,7 @@ using System.Linq;
 using System.Threading;
 using System.Text;
 using System.Diagnostics;
-using BachFlixNfo;
+using TmdbApiCall;
 using System.Collections;
 
 namespace SheetsQuickstart
@@ -2888,12 +2888,11 @@ namespace SheetsQuickstart
                             presetChoice = "--preset-import-file MP4_RF22f.json -Z \"MP4 RF22f\"";
 
 
-                    ArrayList inputArrayList = new ArrayList();
-                    inputArrayList.Add(i);
+                    ArrayList inputArrayList = new ArrayList{i};
                     long sizeOfInputFile = SizeOfFiles(inputArrayList);
-                    ArrayList outputArrayList = new ArrayList();
-                    outputArrayList.Add(o);
-                    long sizeOfOutputFile = SizeOfFiles(outputArrayList);
+                    ArrayList outputArrayList = new ArrayList{o};
+                    // Since the output file MAY not exist yet we wait to get the size of it.
+                    long sizeOfOutputFile = 0;
 
                     if (!File.Exists(o))
                     {
@@ -2904,6 +2903,9 @@ namespace SheetsQuickstart
                         Type("Now converting: " + fileName, 0, 0, 1, "Magenta");
 
                         HandBrake(strMyConversionString, videoFiles.Count - count);
+
+                        // Now that the output file definitely exists we can grab the size of it.
+                        sizeOfOutputFile = SizeOfFiles(outputArrayList);
 
                         // Display the amount of bytes that conversion saved.
                         DisplaySavings(sizeOfOutputFile, sizeOfInputFile);
@@ -2922,6 +2924,9 @@ namespace SheetsQuickstart
                         outputFiles.Clear();
                     } else
                     {
+                        // Now that the output file definitely exists we can grab the size of it.
+                        sizeOfOutputFile = SizeOfFiles(outputArrayList);
+
                         // Display the amount of bytes that conversion saved.
                         DisplaySavings(sizeOfOutputFile, sizeOfInputFile);
 
@@ -2946,8 +2951,18 @@ namespace SheetsQuickstart
         {
             // Display the amount of bytes that conversion saved.
             long difference = iFile - oFile;
-            Type("Conversion savings: ", 0, 0, 0, "Blue");
-            Type(FormatSize(difference) + " of " + FormatSize(iFile) + " " + FormatPercentage(oFile, iFile) + "%", 0, 0, 1, "Yellow");
+            //Console.WriteLine("iFile: " + iFile.ToString("N"));
+            //Console.WriteLine("oFile: " + oFile.ToString("N"));
+            //Console.WriteLine("difference: " + difference.ToString("N"));
+            if(difference >= 0)
+            {
+                Type("Conversion savings: ", 0, 0, 0, "Blue");
+                Type(FormatSize(difference) + " of " + FormatSize(iFile) + " -" + FormatPercentage(difference, iFile) + "%", 0, 0, 1, "Yellow");
+            } else
+            {
+                Type("Conversion loss: ", 0, 0, 0, "Red");
+                Type(FormatSize(difference * -1) + " more than " + FormatSize(iFile) + " +" + FormatPercentage(difference * -1, oFile) + "%", 0, 0, 1, "Yellow");
+            }
 
             // Add the difference to display the total running difference in bytes.
             runningDifference += difference;
