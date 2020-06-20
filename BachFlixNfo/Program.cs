@@ -3183,7 +3183,7 @@ namespace SheetsQuickstart
                 int intFileSkippedCount = 0, intFileAlreadyThereCount = 0, intFileCopiedCount = 0, intFileNotFoundCount = 0;
                 string person = "", chosenDestination = "", sourceHardDriveLetter = "";
 
-                DisplayMessage("question", "For whom are we copying for? (number only please)");
+                DisplayMessage("question", "Who's list of movies are we copyings? (number only please)");
                 DisplayMessage("default", "0 - ", 0);
                 DisplayMessage("info", "Exit");
                 DisplayMessage("default", "1 - ", 0);
@@ -3413,88 +3413,124 @@ namespace SheetsQuickstart
 
         protected static void DeleteMovieFiles(IList<IList<object>> data, Dictionary<string, int> sheetVariables)
         {
-            int intFileSkippedCount = 0, intFileAlreadyThereCount = 0, intFileDeletedCount = 0, intFileNotFoundCount = 0;
-
-            Type("What hard drive am I deleting from? (Just the hard drive letter)", 0, 0, 1, "Yellow");
-
-            var chosenDestination = Console.ReadLine();
-
-            Console.WriteLine("We will delete from hard drive " + chosenDestination);
-
-            foreach (var row in data)
+            do
             {
-                if (row.Count > 4) // If it's an empty row then it should have less than this.
+                int intFileSkippedCount = 0, intFileAlreadyThereCount = 0, intFileDeletedCount = 0, intFileNotFoundCount = 0;
+
+                DisplayMessage("question", "Who's hard drive are we deleting from? (number only please)");
+                DisplayMessage("default", "0 - ", 0);
+                DisplayMessage("info", "Exit");
+                DisplayMessage("default", "1 - ", 0);
+                DisplayMessage("info", "Cindy");
+                DisplayMessage("default", "2 - ", 0);
+                DisplayMessage("info", "Dave");
+
+                var person = Console.ReadLine();
+
+                if (person == "0")
                 {
-                    var cleanTitle = row[Convert.ToInt16(sheetVariables["Clean Title"])].ToString();
-                    var movieDirectory = row[Convert.ToInt16(sheetVariables["Directory"])].ToString();
-                    var status = row[Convert.ToInt16(sheetVariables["Status"])].ToString();
-                    var selected = row[Convert.ToInt16(sheetVariables["Selected"])].ToString();
-                    var folderLetter = row[Convert.ToInt16(sheetVariables["Movie Letter"])].ToString();
-                    var kids = row[Convert.ToInt16(sheetVariables["Kids"])].ToString();
+                    break;
+                }
+                else
+                {
+                    Type("What hard drive am I deleting from? (Just the hard drive letter)", 0, 0, 1, "Yellow");
 
-                    try
+                    var chosenDestination = Console.ReadLine();
+
+                    Console.WriteLine("We will delete from hard drive " + chosenDestination);
+
+                    foreach (var row in data)
                     {
-                        // If the first letter of status is an 'x' or is empty, then we don't need to run through this for loop so don't waste the resources.
-                        if (!status.Equals("") && status[0].ToString().ToUpper() != "X" && selected.ToUpper() == "N")
+                        if (row.Count > 4) // If it's an empty row then it should have less than this.
                         {
-                            // Since the movie status is valid let's go ahead and check if the movie is already at the destination.
+                            var cleanTitle = row[Convert.ToInt16(sheetVariables["Clean Title"])].ToString();
+                            var movieDirectory = row[Convert.ToInt16(sheetVariables["Directory"])].ToString();
+                            var status = row[Convert.ToInt16(sheetVariables["Status"])].ToString();
+                            var cindy = row[Convert.ToInt16(sheetVariables["Cindy"])].ToString();
+                            var dave = row[Convert.ToInt16(sheetVariables["Dave"])].ToString();
+                            var folderLetter = row[Convert.ToInt16(sheetVariables["Movie Letter"])].ToString();
+                            var kids = row[Convert.ToInt16(sheetVariables["Kids"])].ToString();
 
-                            // Create the string that contains the location where the movie should be on the hard drive so we can easily check
-                            // to see if that movie exists.
-                            var fullDestinationPathToFileToDelete = "";
+                            var selected = "";
 
-                            // The directory that holds the movie file.
-                            var containingDirectory = "";
-
-                            if (kids.ToUpper() == "X")
+                            if (person == "1")
                             {
-                                containingDirectory = chosenDestination + ":\\Movies\\Kids Movies";
+                                selected = cindy;
+                            }
+                            else if (person == "2")
+                            {
+                                selected = dave;
                             }
                             else
                             {
-                                containingDirectory += chosenDestination + ":\\Movies\\" + folderLetter;
+                                DisplayMessage("error", "I'm sorry, I don't recognise " + person + " yet. Could you add them to my DB before continuing?");
+                                break;
                             }
 
-                            // Create the holding directory just in case.
-                            Directory.CreateDirectory(containingDirectory);
-
-                            // Concatenate to the containing directory.
-                            fullDestinationPathToFileToDelete = containingDirectory + "\\" + cleanTitle;
-
-                            // Loop through the containing directory to see if the movie is already in there.
-                            string[] fileEntries = Directory.GetFiles(containingDirectory, cleanTitle + ".*");
-                            var movieFound = false;
-                            if (fileEntries.Length > 0)
+                            try
                             {
-                                foreach (var movie in fileEntries)
+                                // If the first letter of status is an 'x' or is empty, then we don't need to run through this for loop so don't waste the resources.
+                                if (!status.Equals("") && status[0].ToString().ToUpper() != "X" && selected.ToUpper() == "N")
                                 {
-                                    File.Delete(movie);
-                                    intFileDeletedCount++;
+                                    // Since the movie status is valid let's go ahead and check if the movie is already at the destination.
+
+                                    // Create the string that contains the location where the movie should be on the hard drive so we can easily check
+                                    // to see if that movie exists.
+                                    var fullDestinationPathToFileToDelete = "";
+
+                                    // The directory that holds the movie file.
+                                    var containingDirectory = "";
+
+                                    if (kids.ToUpper() == "X")
+                                    {
+                                        containingDirectory = chosenDestination + ":\\Movies\\Kids Movies";
+                                    }
+                                    else
+                                    {
+                                        containingDirectory += chosenDestination + ":\\Movies\\" + folderLetter;
+                                    }
+
+                                    // Create the holding directory just in case.
+                                    Directory.CreateDirectory(containingDirectory);
+
+                                    // Concatenate to the containing directory.
+                                    fullDestinationPathToFileToDelete = containingDirectory + "\\" + cleanTitle;
+
+                                    // Loop through the containing directory to see if the movie is already in there.
+                                    string[] fileEntries = Directory.GetFiles(containingDirectory, cleanTitle + ".*");
+                                    if (fileEntries.Length > 0)
+                                    {
+                                        foreach (var movie in fileEntries)
+                                        {
+                                            File.Delete(movie);
+                                            intFileDeletedCount++;
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    //Type("Skipped " + cleanTitle, 0, 0, 1, "Yellow");
+                                    intFileSkippedCount++;
                                 }
                             }
+                            catch (Exception e)
+                            {
+                                Type(e.Message, 3, 100, 1, "Red");
+                                throw;
+                            }
+
                         }
-                        else
-                        {
-                            //Type("Skipped " + cleanTitle, 0, 0, 1, "Yellow");
-                            intFileSkippedCount++;
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        Type(e.Message, 3, 100, 1, "Red");
-                        throw;
                     }
 
+                    Console.WriteLine();
+                    Type("It looks like that's the end of it.", 0, 0, 1);
+                    Type("Movies deleted: " + intFileDeletedCount, 0, 0, 1, "Green");
+                    Type("Movies skipped: " + intFileSkippedCount, 0, 0, 1, "Yellow");
+                    Type("Source movies not found: " + intFileNotFoundCount, 0, 0, 1, "Red");
+                    Type("Movies already at destination: " + intFileAlreadyThereCount, 0, 0, 1, "Blue");
                 }
-            }
-
-            Console.WriteLine();
-            Type("It looks like that's the end of it.", 0, 0, 1);
-            Type("Movies deleted: " + intFileDeletedCount, 0, 0, 1, "Green");
-            Type("Movies skipped: " + intFileSkippedCount, 0, 0, 1, "Yellow");
-            Type("Source movies not found: " + intFileNotFoundCount, 0, 0, 1, "Red");
-            Type("Movies already at destination: " + intFileAlreadyThereCount, 0, 0, 1, "Blue");
-
+            } while (false);
+             
         } // End DeleteMovieFiles()
 
         protected static void ClearDirectories()
