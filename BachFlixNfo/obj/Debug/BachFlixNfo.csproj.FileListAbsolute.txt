@@ -106,3 +106,4 @@ C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\bin\Debug\policy.2.0.taglib-s
 C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\obj\Debug\BachFlixNfo.csproj.CopyComplete
 C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\obj\Debug\BachFlixNfo.exe
 C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\obj\Debug\BachFlixNfo.pdb
+C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\obj\Debug\BachFlixNfo.csprojAssemblyReference.cache

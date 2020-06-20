@@ -742,7 +742,8 @@ namespace SheetsQuickstart
                 {
                     Type("Delete movies. Let's go!", 7, 100, 1);
                     // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add("Selected", -1); // Check if movie is marked with an "X" to move accordingly.
+                    sheetVariables.Add("Cindy", -1); // Check if movie is marked with an "y" to move accordingly.
+                    sheetVariables.Add("Dave", -1); // Check if movie is marked with an "y" to move accordingly.
                     sheetVariables.Add("Directory", -1); // The location of the movie's directory.
                     sheetVariables.Add("Clean Title", -1); // Concatenate the Clean Title to the Directory to save the NFO File.
                     sheetVariables.Add("Status", -1); // If the first character is an "X" then we don't need to worry about looking for the movie.
