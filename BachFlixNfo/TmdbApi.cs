@@ -1,5 +1,6 @@
 ﻿using Newtonsoft.Json;
 using RestSharp;
+using SheetsQuickstart;
 
 namespace TmdbApiCall
 {
@@ -25,6 +26,36 @@ namespace TmdbApiCall
             dynamic json = JsonConvert.DeserializeObject(response.Content);
             return json;
         }
+
+        public static dynamic TvEpisodesGetDetails(string TmdbId, string seasonNum, string episodeNum)
+        {
+            Program.Type("Calling TMDB API with the following data--", 0, 0, 1);
+            Program.Type("TmdbId: " + TmdbId, 0, 0, 1);
+            Program.Type("seasonNum: " + seasonNum, 0, 0, 1);
+            Program.Type("episodeNum: " + episodeNum, 0, 0, 1);
+            try
+            {
+                string strRestClient = "https://api.themoviedb.org/3/tv/" + TmdbId + "/season/" + seasonNum + "/episode/" + episodeNum + "?api_key=" + TMDB_API_KEY + "&language=en-US";
+
+                RestClient client = new RestClient(strRestClient);
+                RestRequest request = new RestRequest(Method.GET);
+                request.AddParameter("undefined", "{}", ParameterType.RequestBody);
+                IRestResponse response = client.Execute(request);
+                dynamic json = JsonConvert.DeserializeObject(response.Content);
+                return json;
+            }
+            catch (System.Exception e)
+            {
+                Program.Type("An error occured!", 0, 0, 1, "Red");
+                Program.Type(e.Message, 0, 0, 1, "DarkRed");
+                throw;
+            }
+        }
+
+
+
+
+        //// Nothing below here works yet.... and may never work.
 
         /// <summary>
         /// You can use this method to check if a movie has already been added to the list.

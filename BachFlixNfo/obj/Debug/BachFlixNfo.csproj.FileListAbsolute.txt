@@ -103,7 +103,6 @@ C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\bin\Debug\Google.Apis.Sheets.
 C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\bin\Debug\Newtonsoft.Json.xml
 C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\bin\Debug\RestSharp.xml
 C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\bin\Debug\policy.2.0.taglib-sharp.config
-C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\obj\Debug\BachFlixNfo.csprojAssemblyReference.cache
 C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\obj\Debug\BachFlixNfo.csproj.CopyComplete
 C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\obj\Debug\BachFlixNfo.exe
 C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\obj\Debug\BachFlixNfo.pdb

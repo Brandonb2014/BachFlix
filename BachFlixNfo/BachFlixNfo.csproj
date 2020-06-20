@@ -77,9 +77,11 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="BachFlixNfo.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="TmdbApi.cs" />
+    <Compile Include="TvdbApi.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />

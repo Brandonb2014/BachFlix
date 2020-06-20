@@ -11,6 +11,7 @@ using System.Threading;
 using System.Text;
 using System.Diagnostics;
 using TmdbApiCall;
+using BachFlixNfoCall;
 using System.Collections;
 
 namespace SheetsQuickstart
@@ -24,12 +25,18 @@ namespace SheetsQuickstart
         private const string TEMP_MOVIES_DATA_RANGE = "Temp!A3:2001";
         private const string YOUTUBE_TITLE_RANGE = "YouTube!A2:2";
         private const string YOUTUBE_DATA_RANGE = "YouTube!A3:2344";
+        private const string FITNESS_VIDEO_TITLE_RANGE = "Fitness Videos!A1:1";
+        private const string FITNESS_VIDEO_DATA_RANGE = "Fitness Videos!A2:1000";
         private const string BONUS_TITLE_RANGE = "Bonus!A1:1";
         private const string BONUS_DATA_RANGE = "Bonus!A2:2036";
         private const string EPISODES_TITLE_RANGE = "Episodes!A1:1";
         private const string EPISODES_DATA_RANGE = "Episodes!A2:2000";
         private const string TEMP_EPISODES_TITLE_RANGE = "Temp Episodes!A1:1";
         private const string TEMP_EPISODES_DATA_RANGE = "Temp Episodes!A2:1000";
+        private const string COMBINED_EPISODES_TITLE_RANGE = "Combined Episodes!A2:2";
+        private const string COMBINED_EPISODES_DATA_RANGE = "Combined Episodes!A3:1001";
+        private const string RECORDED_NAMES_TITLE_RANGE = "Recorded Names!A2:2";
+        private const string RECORDED_NAMES_DATA_RANGE = "Recorded Names!A3:1000";
 
         // The following are the column titles for the Movies sheet. (I guess in case I change the column header I don't have to change it in so many places... but I've yet needed this)
         private const string DIRECTORY = "Directory";
@@ -62,14 +69,18 @@ namespace SheetsQuickstart
 
         // Menu item variables.
         static string exitChoice,
-            missingNfoFilesChoice,
-            overwriteAllNfoFilesChoice,
-            selectedNfoFilesChoice,
-            allTvShowNfoFilesChoice,
+            missingMovieNfoFilesChoice,
+            overwriteAllMovieNfoFilesChoice,
+            selectedMovieNfoFilesChoice,
+            missingTvShowNfoFilesChoice,
+            overwriteAllTvShowNfoFilesChoice,
             selectedTvShowNfoFilesChoice,
             missingYoutubeNfoFilesChoice,
             overwriteAllYoutubeNfoFilesChoice,
             selectedYoutubeNfoFilesChoice,
+            missingFitnessVideoNfoFilesChoice,
+            overwriteAllFitnessVideoNfoFilesChoice,
+            selectedFitnessVideoNfoFilesChoice,
             convertMoviesChoice,
             convertDirectoryChoice,
             convertMoviesSlowChoice,
@@ -88,7 +99,9 @@ namespace SheetsQuickstart
             createFoldersAndMoveFilesChoice,
             trimTitlesInDirectoryChoice,
             bothTrimAndCreateFoldersChoice,
-            findSizeOfVideoFilesInDirectoryChoice;
+            findSizeOfVideoFilesInDirectoryChoice,
+            fetchTvShowPlotsChoice,
+            fixRecordedNamesChoice;
 
         static string fileSize;
         static long fileSizeBytes;
@@ -144,22 +157,30 @@ namespace SheetsQuickstart
             exitChoice = "0";
             Type(exitChoice + "- Exit", 0, 0, 1, "darkgray");
             Type("--- NFO File Creation ---", 0, 0, 1, "darkgreen");
-            missingNfoFilesChoice = "1";
-            Type(missingNfoFilesChoice + "- Missing NFO Files", 0, 0, 1, "darkgreen");
-            overwriteAllNfoFilesChoice = "1a";
-            Type(overwriteAllNfoFilesChoice + "- Overwrite all NFO Files", 0, 0, 1, "darkgreen");
-            selectedNfoFilesChoice = "1s";
-            Type(selectedNfoFilesChoice + "- Selected NFO Files", 0, 0, 1, "darkgreen");
-            allTvShowNfoFilesChoice = "3";
-            Type(allTvShowNfoFilesChoice + "- All TV Shows (Coming Soon)", 0, 0, 1, "darkgreen");
-            selectedTvShowNfoFilesChoice = "3s";
-            Type(selectedTvShowNfoFilesChoice + "- Selected TV Shows (Coming Soon)", 0, 0, 1, "darkgreen");
-            missingYoutubeNfoFilesChoice = "4";
+            missingMovieNfoFilesChoice = "n1";
+            Type(missingMovieNfoFilesChoice + "- Missing Movie NFO Files", 0, 0, 1, "darkgreen");
+            overwriteAllMovieNfoFilesChoice = "n1o";
+            Type(overwriteAllMovieNfoFilesChoice + "- Overwrite ALL Movie NFO Files", 0, 0, 1, "darkgreen");
+            selectedMovieNfoFilesChoice = "n1s";
+            Type(selectedMovieNfoFilesChoice + "- Selected Movie NFO Files", 0, 0, 1, "darkgreen");
+            missingTvShowNfoFilesChoice = "n2";
+            Type(missingTvShowNfoFilesChoice + "- Missing TV Show NFO Files (Under Construction)", 0, 0, 1, "darkgreen");
+            overwriteAllTvShowNfoFilesChoice = "n2o";
+            Type(overwriteAllTvShowNfoFilesChoice + "- Overwrite ALL TV Show NFO Files (Under Construction)", 0, 0, 1, "darkgreen");
+            selectedTvShowNfoFilesChoice = "n2s";
+            Type(selectedTvShowNfoFilesChoice + "- Selected TV Show NFO Files (Under Construction)", 0, 0, 1, "darkgreen");
+            missingYoutubeNfoFilesChoice = "n3";
             Type(missingYoutubeNfoFilesChoice + "- Missing YouTube NFO Files", 0, 0, 1, "darkgreen");
-            overwriteAllYoutubeNfoFilesChoice = "4a";
-            Type(overwriteAllYoutubeNfoFilesChoice + "- Overwrite all YouTube NFO Files", 0, 0, 1, "darkgreen");
-            selectedYoutubeNfoFilesChoice = "4s";
+            overwriteAllYoutubeNfoFilesChoice = "n3o";
+            Type(overwriteAllYoutubeNfoFilesChoice + "- Overwrite ALL YouTube NFO Files", 0, 0, 1, "darkgreen");
+            selectedYoutubeNfoFilesChoice = "n3s";
             Type(selectedYoutubeNfoFilesChoice + "- Selected YouTube NFO Files", 0, 0, 1, "darkgreen");
+            missingFitnessVideoNfoFilesChoice = "n4";
+            Type(missingFitnessVideoNfoFilesChoice + "- Missing Fitness Video NFO Files", 0, 0, 1, "darkgreen");
+            overwriteAllFitnessVideoNfoFilesChoice = "n4o";
+            Type(overwriteAllFitnessVideoNfoFilesChoice + "- Overwrite ALL Fitness Video NFO Files", 0, 0, 1, "darkgreen");
+            selectedFitnessVideoNfoFilesChoice = "n4s";
+            Type(selectedFitnessVideoNfoFilesChoice + "- Selected Fitness Video NFO Files", 0, 0, 1, "darkgreen");
 
             Type("-- Convert Files ---", 0, 0, 1, "darkcyan");
             convertMoviesChoice = "5";
@@ -217,6 +238,10 @@ namespace SheetsQuickstart
             Type(bothTrimAndCreateFoldersChoice + "- Trim the titles AND create directories then move files into directories.", 0, 0, 1, "darkyellow");
             findSizeOfVideoFilesInDirectoryChoice = "24";
             Type(findSizeOfVideoFilesInDirectoryChoice + "- Give the size of video files in a directory.", 0, 0, 1, "darkyellow");
+            fetchTvShowPlotsChoice = "25";
+            Type(fetchTvShowPlotsChoice + "- Gather the TV Show episode plots from TVDB.", 0, 0, 1, "darkyellow");
+            fixRecordedNamesChoice = "26";
+            Type(fixRecordedNamesChoice + "- Fix recorded names.", 0, 0, 1, "darkyellow");
 
             return Console.ReadLine().Split(',');
 
@@ -236,7 +261,7 @@ namespace SheetsQuickstart
                     keepAskingForChoice = false;
 
                 }
-                else if (choice.Trim().Equals(missingNfoFilesChoice)) // NFO files for New Movies - does not overwrite any, just puts in missing NFO files.
+                else if (choice.Trim().Equals(missingMovieNfoFilesChoice)) // NFO files for New Movies - does not overwrite any, just puts in missing NFO files.
                 {
                     Type("Insert missing NFO Files. Let's go!", 7, 100, 1);
                     // A dictionary to hold the columns we need to find.
@@ -255,7 +280,7 @@ namespace SheetsQuickstart
                     CreateNfoFiles(movieData, sheetVariables, type);
 
                 }
-                else if (choice.Trim().Equals(overwriteAllNfoFilesChoice)) // NFO files for All Movies - overwrite old NFO files AND put in new ones.
+                else if (choice.Trim().Equals(overwriteAllMovieNfoFilesChoice)) // NFO files for All Movies - overwrite old NFO files AND put in new ones.
                 {
                     Type("Insert missing AND overwrite NFO Files. Let's go!", 7, 100, 1);
                     // A dictionary to hold the columns we need to find.
@@ -273,7 +298,7 @@ namespace SheetsQuickstart
 
                     CreateNfoFiles(movieData, sheetVariables, type);
                 }
-                else if (choice.Trim().Equals(selectedNfoFilesChoice)) // NFO files for Selected Movies - overwrite or put in new ones. if they are selected.
+                else if (choice.Trim().Equals(selectedMovieNfoFilesChoice)) // NFO files for Selected Movies - overwrite or put in new ones. if they are selected.
                 {
                     Type("Insert selected NFO Files. Let's go!", 7, 100, 1);
                     // A dictionary to hold the columns we need to find.
@@ -350,7 +375,64 @@ namespace SheetsQuickstart
 
                     CreateNfoFiles(movieData, sheetVariables, type, true);
                 }
-                else if (choice.Trim().Equals(convertMoviesChoice)) // Convert movies the fast cheap way.
+                else if (choice.Trim().Equals(missingFitnessVideoNfoFilesChoice)) // NFO files for New videos - does not overwrite any, just puts in missing NFO files.
+                {
+                    Type("This method is still in the works, please try another one.", 7, 100, 1, "Yellow");
+                    //Type("Create missing Fitness Video NFO Files. Let's go!", 7, 100, 1, "Blue");
+
+                    //// A dictionary to hold the columns we need to find.
+                    //sheetVariables.Add("Program", -1);
+                    //sheetVariables.Add("Subfolder", -1);
+                    //sheetVariables.Add("Name", -1);
+                    //sheetVariables.Add("Title", -1);
+                    //sheetVariables.Add("NFO Body", -1);
+
+                    //titleRowDataRange = FITNESS_VIDEO_TITLE_RANGE;
+                    //mainDataRange = FITNESS_VIDEO_DATA_RANGE;
+
+                    //IList<IList<Object>> videoData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+
+                    //BachFlixNfo.MissingFitnessVideoNfoFiles(videoData, sheetVariables);
+                }
+                else if (choice.Trim().Equals(overwriteAllYoutubeNfoFilesChoice)) // NFO files for All videos - overwrite old NFO files AND put in new ones.
+                {
+                    Type("Overwrite ALL YouTube NFO Files. Let's go!", 7, 100, 1, "Blue");
+
+                    // A dictionary to hold the columns we need to find.
+                    sheetVariables.Add("Program", -1);
+                    sheetVariables.Add("Subfolder", -1);
+                    sheetVariables.Add("Name", -1);
+                    sheetVariables.Add("Title", -1);
+                    sheetVariables.Add("NFO Body", -1);
+
+                    titleRowDataRange = FITNESS_VIDEO_TITLE_RANGE;
+                    mainDataRange = FITNESS_VIDEO_DATA_RANGE;
+
+                    IList<IList<Object>> videoData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+
+                    BachFlixNfo.OverwriteFitnessVideoNfoFiles(videoData, sheetVariables);
+                }
+                //else if (choice.Trim().Equals(selectedYoutubeNfoFilesChoice)) // NFO files for Selected videos - overwrite or put in new ones. if they are selected.
+                //{
+                //    Type("Create/Overwrite selected YouTube NFO Files. Let's go!", 7, 100, 1);
+
+                //    // A dictionary to hold the columns we need to find.
+                //    sheetVariables.Add(DIRECTORY, -1); // The path to the folder holding the movie.
+                //    sheetVariables.Add(CLEAN_TITLE, -1); // Concatenate the Clean Title to the Directory to save the NFO File.
+                //    sheetVariables.Add(NFO_BODY, -1); // The text of the NFO File to save.
+                //    sheetVariables.Add(STATUS, -1); // The Status of the movie i.e. if the movie should actually be there.
+                //    sheetVariables.Add(QUICK_CREATE, -1); // Create/Overwrite selected NFO files.
+
+                //    titleRowDataRange = YOUTUBE_TITLE_RANGE;
+                //    mainDataRange = YOUTUBE_DATA_RANGE;
+
+                //    type = 2;
+
+                //    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+
+                //    CreateNfoFiles(movieData, sheetVariables, type, true);
+                //}
+            else if (choice.Trim().Equals(convertMoviesChoice)) // Convert movies the fast cheap way.
                 {
                     // A dictionary to hold the columns we need to find.
                     sheetVariables.Add("Directory", -1); // The path to the folder holding the video.
@@ -455,6 +537,50 @@ namespace SheetsQuickstart
 
                         Type("The size of the " + videoFiles.Count + plural + "is: ", 0, 0, 0, "Blue");
                         Type(sizeInText, 0, 0, 1, "Cyan");
+                    }
+
+                }
+                else if (choice.Trim().Equals(fetchTvShowPlotsChoice)) // Fetch TV Show episode plots from TVDB.
+                {
+                    Type("Gather the TV Show episode plots from TVDB. Let's go!", 7, 100, 1);
+
+                    // A dictionary to hold the columns we need to find.
+                    sheetVariables.Add("Combined Episode Name", -1);
+                    sheetVariables.Add("TMDB ID", -1);
+                    sheetVariables.Add("Episode 1 Title", -1);
+                    sheetVariables.Add("Episode 2 Title", -1);
+                    sheetVariables.Add("Episode 1 Season", -1);
+                    sheetVariables.Add("Episode 1 No.", -1);
+                    sheetVariables.Add("Episode 2 Season", -1);
+                    sheetVariables.Add("Episode 2 No.", -1);
+                    sheetVariables.Add("Episode 1 Plot", -1);
+                    sheetVariables.Add("Episode 2 Plot", -1);
+
+                    titleRowDataRange = COMBINED_EPISODES_TITLE_RANGE;
+                    mainDataRange = COMBINED_EPISODES_DATA_RANGE;
+
+                    IList<IList<Object>> videoData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+
+                    BachFlixNfo.InputTvShowPlots(videoData, sheetVariables);
+
+                }
+                else if (choice.Trim().Equals(fixRecordedNamesChoice)) // Fix recorded names.
+                {
+                    DisplayMessage("info", "Fix the recorded names. Let's go!", 7, 100, 1);
+                    var directory = AskForDirectory();
+
+                    if (directory != "0")
+                    {
+                        // A dictionary to hold the columns we need to find.
+                        sheetVariables.Add("Recorded Name", -1);
+                        sheetVariables.Add("Actual Name", -1);
+
+                        titleRowDataRange = RECORDED_NAMES_TITLE_RANGE;
+                        mainDataRange = RECORDED_NAMES_DATA_RANGE;
+
+                        IList<IList<Object>> videoData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+
+                        BachFlixNfo.FixRecordedNames(videoData, sheetVariables, directory);
                     }
 
                 }
@@ -596,7 +722,8 @@ namespace SheetsQuickstart
                 {
                     Type("Copy movies. Let's go!", 7, 100, 1);
                     // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add("Selected", -1); // Check if movie is marked with an "X" to move accordingly.
+                    sheetVariables.Add("Cindy", -1); // Check if movie is marked with an "y" to move accordingly.
+                    sheetVariables.Add("Dave", -1); // Check if movie is marked with an "y" to move accordingly.
                     sheetVariables.Add("Directory", -1); // The location of the movie's directory.
                     sheetVariables.Add("Clean Title", -1); // Concatenate the Clean Title to the Directory to save the NFO File.
                     sheetVariables.Add("Status", -1); // If the first character is an "X" then we don't need to worry about looking for the movie.
@@ -741,22 +868,11 @@ namespace SheetsQuickstart
                     //    Type("14", 100, 100, 0);
                     //    break;
                     case "t22": // Simply prints out examples of all the font colors I use.
-                        string myColor = "Red";
-                        Type("This is " + myColor, 0, 0, 1, myColor);
 
-                        myColor = "Green";
-                        Type("This is " + myColor, 0, 0, 1, myColor);
-
-                        myColor = "YelloW";
+                        string myColor = "Black";
                         Type("This is " + myColor, 0, 0, 1, myColor);
 
                         myColor = "Blue";
-                        Type("This is " + myColor, 0, 0, 1, myColor);
-
-                        myColor = "Magenta";
-                        Type("This is " + myColor, 0, 0, 1, myColor);
-
-                        myColor = "Gray";
                         Type("This is " + myColor, 0, 0, 1, myColor);
 
                         myColor = "Cyan";
@@ -774,13 +890,35 @@ namespace SheetsQuickstart
                         myColor = "DarkGreen";
                         Type("This is " + myColor, 0, 0, 1, myColor);
 
+                        myColor = "DarkMagenta";
+                        Type("This is " + myColor, 0, 0, 1, myColor);
+
                         myColor = "DarkRed";
                         Type("This is " + myColor, 0, 0, 1, myColor);
 
                         myColor = "DarkYellow";
                         Type("This is " + myColor, 0, 0, 1, myColor);
+
+                        myColor = "Gray";
+                        Type("This is " + myColor, 0, 0, 1, myColor);
+
+                        myColor = "Green";
+                        Type("This is " + myColor, 0, 0, 1, myColor);
+
+                        myColor = "Magenta";
+                        Type("This is " + myColor, 0, 0, 1, myColor);
+
+                        myColor = "Red";
+                        Type("This is " + myColor, 0, 0, 1, myColor);
+
+                        myColor = "White";
+                        Type("This is " + myColor, 0, 0, 1, myColor);
+
+                        myColor = "Yellow";
+                        Type("This is " + myColor, 0, 0, 1, myColor);
+
                         break;
-                    case "23": // Testing time interval.
+                    case "t23": // Testing time interval.
                         DateTime a = new DateTime(2008, 01, 02, 06, 30, 00);
                         DateTime b = new DateTime(2008, 01, 03, 09, 43, 55);
 
@@ -1078,7 +1216,7 @@ namespace SheetsQuickstart
                 }
             }
             Console.WriteLine();
-            Type("It looks like theat's the end of it.", 0, 0, 1);
+            Type("It looks like that's the end of it.", 0, 0, 1);
             Type("Movies removed: " + intMoviesRemovedCount, 0, 0, 1, "Green");
             Type("Movies skipped: " + intMoviesSkippedCount, 0, 0, 1, "Yellow");
             Type("Movies not in list: " + intMoviesNotInListCount, 0, 0, 1, "Blue");
@@ -1178,7 +1316,7 @@ namespace SheetsQuickstart
                 }
             }
             Console.WriteLine();
-            Type("It looks like theat's the end of it.", 0, 0, 1);
+            Type("It looks like that's the end of it.", 0, 0, 1);
             Type("Movies moved: " + moviesMovedCount, 0, 0, 1, "Green");
             Type("Movies skipped due to Status: " + moviesSkippedCount, 0, 0, 1, "Yellow");
             Type("Movies not found: " + moviesNotFoundCount, 0, 0, 1, "Red");
@@ -1338,7 +1476,7 @@ namespace SheetsQuickstart
                 }
             }
             Console.WriteLine();
-            Type("It looks like theat's the end of it.", 0, 0, 1);
+            Type("It looks like that's the end of it.", 0, 0, 1);
             Type("TMDB IDs inserted: " + intTmdbIdDoneCount, 0, 0, 1, "Green");
             Type("TMDB IDs skipped: " + intTmdbIdSkippedCount, 0, 0, 1, "Yellow");
             Type("TMDB IDs corrected: " + intTmdbIdCorrectedCount, 0, 0, 1, "Blue");
@@ -1379,7 +1517,7 @@ namespace SheetsQuickstart
                 }
             }
             Console.WriteLine();
-            Type("It looks like theat's the end of it.", 0, 0, 1);
+            Type("It looks like that's the end of it.", 0, 0, 1);
             Type("Directories moved: " + intDirectoriesMoviedCount, 0, 0, 1, "Green");
             Type("Directories skipped: " + intDirectoriesSkippedCount, 0, 0, 1, "Yellow");
         }
@@ -1406,10 +1544,10 @@ namespace SheetsQuickstart
             try
             {
                 File.Copy(source, destination);
-                Type("Copied ", 0, 0, 0);
-                Type(source, 0, 0, 1, "Green");
-                Type(" to ", 0, 0, 0);
-                Type(destination, 0, 0, 1, "Green");
+                //Type("Copied ", 0, 0, 0);
+                //Type(source, 0, 0, 1, "Green");
+                //Type(" to ", 0, 0, 0);
+                //Type(destination, 0, 0, 1, "Green");
             }
             catch (Exception exp)
             {
@@ -1551,7 +1689,7 @@ namespace SheetsQuickstart
         /// <param name="data">The movie data to be stepped through</param>
         /// <param name="sheetVariables">The dictionary that holds the column data.</param>
         /// <param name="type">The type of NFO file to write: 1 = ALL movies, 2 = Only selected movies, 3 = Only missing NFO Files.</param>
-        /// <param name="trimFile">For the YouTube filenames we need to trim the title so we don't run into the character limit issue.</param>
+        /// <param name="isYouTubeFile">For the YouTube filenames we need to trim the title so we don't run into the character limit issue.</param>
         protected static void CreateNfoFiles(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, int type, bool isYouTubeFile = false)
         {
             int nfoFileNotFoundCount = 0, nfoFileOverwrittenCount = 0, nfoFileCreatedCount = 0;
@@ -1559,7 +1697,8 @@ namespace SheetsQuickstart
             foreach (var row in data)
             {
                 Console.WriteLine("CleanTitle: " + row[Convert.ToInt16(sheetVariables[CLEAN_TITLE])].ToString());
-                if (row[Convert.ToInt16(sheetVariables[CLEAN_TITLE])].ToString() != "")
+                Console.WriteLine("row.Count: " + row.Count);
+                if (row.Count > 20)
                 {
                     var directoryFound = false;
                     var cleanTitle = row[Convert.ToInt16(sheetVariables[CLEAN_TITLE])].ToString();
@@ -1918,26 +2057,6 @@ namespace SheetsQuickstart
         } // End CheckColumns()
 
         /// <summary>
-        /// Simply writes the NFO File to the chosen path.
-        /// </summary>
-        /// <param name="path">The path to the folder location.</param>
-        /// <param name="fileText">The text of the NFO File to be saved.</param>
-        protected static void WriteNfoFile(string path, string fileText)
-        {
-            try
-            {
-                File.WriteAllText(path, fileText, Encoding.UTF8);
-            }
-            catch (Exception e)
-            {
-                Type("Something went wrong writing to path: " + path + " | " + e.Message, 3, 100, 1, "Red");
-                Type(e.Message, 3, 100, 2, "DarkRed");
-                throw;
-            }
-
-        } // End WriteNfoFile()
-
-        /// <summary>
         /// Grabs the list of movies from the Google Sheet. Sends each IMDB ID to theMovieDB.org API to get the movie data.
         /// Inserts missing movie data into the Google Sheet (TMDB Rating, Plot, TMDB ID).
         /// </summary>
@@ -2104,7 +2223,7 @@ namespace SheetsQuickstart
                 }
             }
             Console.WriteLine();
-            Type("It looks like theat's the end of it.", 0, 0, 1);
+            Type("It looks like that's the end of it.", 0, 0, 1);
             Type("TMDB IDs inserted: " + intTmdbIdDoneCount, 0, 0, 1, "Green");
             Type("TMDB Ratings inserted: " + intTmdbRatingDoneCount, 0, 0, 1, "Green");
             Type("Plots inserted: " + intPlotDoneCount, 0, 0, 1, "Green");
@@ -2113,80 +2232,6 @@ namespace SheetsQuickstart
             Type("Plots not available: " + intPlotNotFoundCount, 0, 0, 1, "Red");
 
         } // End InputMovieData()
-
-        protected static bool WriteSingleCellToSheet(string strDataToSave, string strCellToSaveData)
-        {
-            try
-            {
-                Thread.Sleep(1000); // Sleep for a second so we don't go over the Google allotted requests.
-                // How the input data should be interpreted.
-                SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum valueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
-
-                // TODO: Assign values to desired properties of `requestBody`. All existing
-                // properties will be replaced:
-                ValueRange requestBody = new ValueRange
-                {
-                    MajorDimension = "COLUMNS" // "ROWS" / "COLUMNS"
-                };
-                var oblist = new List<object>() { strDataToSave };
-                requestBody.Values = new List<IList<object>> { oblist };
-
-                UserCredential credential;
-
-                using (var stream =
-                    new FileStream("credentials.json", FileMode.Open, FileAccess.Read))
-                {
-                    string credPath = "token.json";
-                    credential = GoogleWebAuthorizationBroker.AuthorizeAsync(
-                        GoogleClientSecrets.Load(stream).Secrets,
-                        SCOPES,
-                        "user",
-                        CancellationToken.None,
-                        new FileDataStore(credPath, true)).Result;
-                }
-
-                SheetsService sheetsService = new SheetsService(new BaseClientService.Initializer
-                {
-                    HttpClientInitializer = credential,
-                    ApplicationName = "Google-SheetsSample/0.1",
-                });
-
-                SpreadsheetsResource.ValuesResource.UpdateRequest request = sheetsService.Spreadsheets.Values.Update(requestBody, SPREADSHEET_ID, strCellToSaveData);
-                request.ValueInputOption = valueInputOption;
-
-                // To execute asynchronously in an async method, replace `request.Execute()` as shown:
-                UpdateValuesResponse response = request.Execute();
-                // Data.UpdateValuesResponse response = await request.ExecuteAsync();
-                return true;
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.Message);
-                throw;
-            }
-
-        } // End WriteSingleCellToSheet
-
-        /// <summary>
-        /// Convert the number to the column letter.
-        /// i.e. 0 = A
-        /// </summary>
-        /// <param name="columnNum">The number of the column.</param>
-        /// <returns>The column letter.</returns>
-        protected static string ColumnNumToLetter(int columnNum)
-        {
-            if(columnNum < 53)
-            {
-                string[] myString = { "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "AA", "AB", "AC", "AD", "AE", "AF", "AG", "AH", "AI", "AJ", "AK", "AL", "AM", "AN", "AO", "AP", "AQ", "AR", "AS", "AT", "AU", "AV", "AW", "AX", "AY", "AZ" };
-                
-                return myString[columnNum];
-            }
-            else
-            {
-                return "";
-            }
-            
-        }
 
         /// <summary>
         /// This is a test method for writing to the same console line.
@@ -2975,7 +3020,7 @@ namespace SheetsQuickstart
             return ((decimal.Parse(oFile.ToString()) / decimal.Parse(iFile.ToString())) * 100).ToString("N2");
         }
 
-        protected static void DisplayEndOfCurrentProcessLines()
+        public static void DisplayEndOfCurrentProcessLines()
         {
             Type("-------------------------------------------------------------------", 0, 0, 2);
         }
@@ -3130,175 +3175,238 @@ namespace SheetsQuickstart
 
         protected static void CopyMovieFiles(IList<IList<object>> data, Dictionary<string, int> sheetVariables)
         {
-            int intFileSkippedCount = 0, intFileAlreadyThereCount = 0, intFileCopiedCount = 0, intFileNotFoundCount = 0;
+            var repeatProcess = false;
 
-            Type("What hard drive am I copying to? (Just the hard drive letter)", 0, 0, 1, "Yellow");
-
-            var chosenDestination = Console.ReadLine();
-
-            Console.WriteLine("We will copy to hard drive " + chosenDestination);
-
-            Type("What hard drive am I copying from? (Just the hard drive letter)", 0, 0, 1, "Yellow");
-
-            var sourceHardDriveLetter = Console.ReadLine();
-
-            Console.WriteLine("We will copy from the " + sourceHardDriveLetter.ToUpper() + " drive.");
-
-            foreach (var row in data)
+            do
             {
-                if (row.Count > 4) // If it's an empty row then it should have less than this.
+                int intFileSkippedCount = 0, intFileAlreadyThereCount = 0, intFileCopiedCount = 0, intFileNotFoundCount = 0;
+                string person = "", chosenDestination = "", sourceHardDriveLetter = "";
+
+                DisplayMessage("question", "For whom are we copying for? (number only please)");
+                DisplayMessage("default", "0 - ", 0);
+                DisplayMessage("info", "Exit");
+                DisplayMessage("default", "1 - ", 0);
+                DisplayMessage("info", "Cindy");
+                DisplayMessage("default", "2 - ", 0);
+                DisplayMessage("info", "Dave");
+
+                person = Console.ReadLine();
+
+                if (person == "0")
                 {
-                    var cleanTitle = row[Convert.ToInt16(sheetVariables["Clean Title"])].ToString();
-                    var movieDirectory = row[Convert.ToInt16(sheetVariables["Directory"])].ToString();
-                    var status = row[Convert.ToInt16(sheetVariables["Status"])].ToString();
-                    var selected = row[Convert.ToInt16(sheetVariables["Selected"])].ToString();
-                    var folderLetter = row[Convert.ToInt16(sheetVariables["Movie Letter"])].ToString();
-                    var kids = row[Convert.ToInt16(sheetVariables["Kids"])].ToString();
+                    break;
+                } else if (person == "1" || person == "2")
+                {
+                    Type("What hard drive am I copying to? (Just the hard drive letter)", 0, 0, 1, "Yellow");
 
-                    try
+                    chosenDestination = Console.ReadLine().ToUpper();
+
+                    Console.WriteLine("We will copy to hard drive " + chosenDestination);
+
+                    Type("What hard drive am I copying from? (Just the hard drive letter)", 0, 0, 1, "Yellow");
+
+                    sourceHardDriveLetter = Console.ReadLine().ToUpper();
+
+                    if (chosenDestination != sourceHardDriveLetter)
                     {
-                        // If the first letter of status is an 'x' or is empty, then we don't need to run through this for loop so don't waste the resources.
-                        if (!status.Equals("") && status[0].ToString().ToUpper() != "X" && selected.ToUpper() == "Y")
+                        Console.WriteLine("We will copy from the " + sourceHardDriveLetter + " drive.");
+                    } else
+                    {
+                        DisplayMessage("error", "I'm sorry the source hard drive can't be the same as the destination.");
+                        repeatProcess = true;
+                    }
+
+                } else
+                {
+                    DisplayMessage("error", "I'm sorry, I don't recognise " + person + " yet. Could you add them to my DB before continuing?");
+                    repeatProcess = true;
+                }
+
+                if (!repeatProcess)
+                {
+                    foreach (var row in data)
+                    {
+                        if (row.Count > 4) // If it's an empty row then it should have less than this.
                         {
-                            // Since the movie status is valid let's go ahead and check if the movie is already at the destination.
+                            var cleanTitle = row[Convert.ToInt16(sheetVariables["Clean Title"])].ToString();
+                            var movieDirectory = row[Convert.ToInt16(sheetVariables["Directory"])].ToString();
+                            var status = row[Convert.ToInt16(sheetVariables["Status"])].ToString();
+                            var cindy = row[Convert.ToInt16(sheetVariables["Cindy"])].ToString();
+                            var dave = row[Convert.ToInt16(sheetVariables["Dave"])].ToString();
+                            var folderLetter = row[Convert.ToInt16(sheetVariables["Movie Letter"])].ToString();
+                            var kids = row[Convert.ToInt16(sheetVariables["Kids"])].ToString();
 
-                            // Create the string that contains the location where the movie should be on the hard drive so we can easily check
-                            // to see if that movie exists.
-                            var fullDestinationPath = "";
-                            
-                            // The directory that holds the movie file.
-                            var containingDirectory = "";
+                            var selected = "";
 
-                            if (kids.ToUpper() == "X")
+                            if (person == "1")
                             {
-                                containingDirectory = chosenDestination + ":\\Movies\\Kids Movies";
+                                selected = cindy;
+                            }
+                            else if (person == "2")
+                            {
+                                selected = dave;
                             }
                             else
                             {
-                                containingDirectory += chosenDestination + ":\\Movies\\" + folderLetter;
+                                DisplayMessage("error", "I'm sorry, I don't recognise " + person + " yet. Could you add them to my DB before continuing?");
+                                repeatProcess = true;
                             }
 
-                            // Create the holding directory just in case.
-                            Directory.CreateDirectory(containingDirectory);
-
-                            // Concatenate to the containing directory.
-                            fullDestinationPath = containingDirectory + "\\" + cleanTitle;
-
-                            // Loop through the containing directory to see if the movie is already in there.
-                            string[] fileEntries = Directory.GetFiles(containingDirectory, cleanTitle + ".*", SearchOption.AllDirectories);
-                            var movieFound = false;
-                            if (fileEntries.Length > 0)
+                            try
                             {
-                                foreach (var movie in fileEntries)
+                                // If the first letter of status is an 'x' or is empty, then we don't need to run through this for loop so don't waste the resources.
+                                if (!repeatProcess && !status.Equals("") && status[0].ToString().ToUpper() != "X" && selected.ToUpper() == "Y")
                                 {
-                                    // Check to see if that file exists on our destination hard drive.
-                                    // If it doesn't then we know we need to copy the movie over to the destination hard drive.
-                                    if (!movie.Contains(cleanTitle))
+                                    // Since the movie status is valid let's go ahead and check if the movie is already at the destination.
+
+                                    // Create the string that contains the location where the movie should be on the hard drive so we can easily check
+                                    // to see if that movie exists.
+                                    var fullDestinationPath = "";
+
+                                    // The directory that holds the movie file.
+                                    var containingDirectory = "";
+
+                                    if (kids.ToUpper() == "X")
                                     {
-                                        movieFound = true;
+                                        containingDirectory = chosenDestination + ":\\Movies\\Kids Movies";
                                     }
-                                }
-                            }
-
-                            if (!movieFound)
-                            {
-                                // Now that we know the destination location doesn't exist we need to check if the source folder exists to
-                                // copy from.
-                                var sourcePathWithDriveLetter = sourceHardDriveLetter + movieDirectory;
-                                var fullSourcePath = sourcePathWithDriveLetter + "\\" + cleanTitle;
-                                if (Directory.Exists(sourcePathWithDriveLetter))
-                                {
-                                    var movieFoundAtSource = false;
-                                    // Process the list of files found in the destination.
-                                    string[] sourceFileEntries = Directory.GetFiles(sourcePathWithDriveLetter);
-                                    if (sourceFileEntries.Length > 0)
+                                    else
                                     {
-                                        foreach (string fileName in sourceFileEntries)
+                                        containingDirectory += chosenDestination + ":\\Movies\\" + folderLetter;
+                                    }
+
+                                    // Create the holding directory just in case.
+                                    Directory.CreateDirectory(containingDirectory);
+
+                                    // Concatenate to the containing directory.
+                                    fullDestinationPath = containingDirectory + "\\" + cleanTitle;
+
+                                    // Grab all files that contain the cleanTitle out of the containgDirectory.
+                                    string[] fileEntries = Directory.GetFiles(containingDirectory, cleanTitle + ".*", SearchOption.AllDirectories);
+
+                                    if (fileEntries.Length == 0)
+                                    {
+                                        // Now that we know the destination location doesn't exist we need to check if the source folder exists to
+                                        // copy from.
+                                        var sourcePathWithDriveLetter = sourceHardDriveLetter + movieDirectory;
+                                        var fullSourcePath = sourcePathWithDriveLetter + "\\" + cleanTitle;
+                                        if (Directory.Exists(sourcePathWithDriveLetter))
                                         {
-                                            if (fileName.ToUpper().Contains(".MP4"))
+                                            var movieFoundAtSource = false;
+                                            // Process the list of files found in the destination.
+                                            string[] sourceFileEntries = Directory.GetFiles(sourcePathWithDriveLetter);
+                                            if (sourceFileEntries.Length > 0)
                                             {
-                                                fullSourcePath += ".mp4";
-                                                fullDestinationPath += ".mp4";
-                                                movieFoundAtSource = true;
-                                                CopyFile(fullSourcePath, fullDestinationPath);
-                                                intFileCopiedCount++;
+                                                foreach (string fileName in sourceFileEntries)
+                                                {
+                                                    string mp4 = ".mp4",
+                                                           mkv = ".mkv",
+                                                           m4v = ".m4v",
+                                                           avi = ".avi",
+                                                           srt = ".en.forced.srt";
+                                                    if (fileName.ToLower().Contains(mp4))
+                                                    {
+                                                        movieFoundAtSource = true;
+                                                        DisplayMessage("warning", "Copying ", 0, 0, 0);
+                                                        DisplayMessage("info", cleanTitle + mp4, 0, 0, 0);
+                                                        DisplayMessage("warning", "... ", 0, 0, 0);
+                                                        CopyFile(fullSourcePath + mp4, fullDestinationPath + mp4);
+                                                        DisplayMessage("success", "DONE");
+                                                        intFileCopiedCount++;
+                                                    }
+                                                    else if (fileName.ToLower().Contains(mkv))
+                                                    {
+                                                        movieFoundAtSource = true;
+                                                        DisplayMessage("warning", "Copying ", 0, 0, 0);
+                                                        DisplayMessage("info", cleanTitle + mkv, 0, 0, 0);
+                                                        DisplayMessage("warning", "... ", 0, 0, 0);
+                                                        CopyFile(fullSourcePath + mkv, fullDestinationPath + mkv);
+                                                        DisplayMessage("success", "DONE");
+                                                        intFileCopiedCount++;
+                                                    }
+                                                    else if (fileName.ToLower().Contains(m4v))
+                                                    {
+                                                        movieFoundAtSource = true;
+                                                        DisplayMessage("warning", "Copying ", 0, 0, 0);
+                                                        DisplayMessage("info", cleanTitle + m4v, 0, 0, 0);
+                                                        DisplayMessage("warning", "... ", 0, 0, 0);
+                                                        CopyFile(fullSourcePath + m4v, fullDestinationPath + m4v);
+                                                        DisplayMessage("success", "DONE");
+                                                        intFileCopiedCount++;
+                                                    }
+                                                    else if (fileName.ToLower().Contains(avi))
+                                                    {
+                                                        movieFoundAtSource = true;
+                                                        DisplayMessage("warning", "Copying ", 0, 0, 0);
+                                                        DisplayMessage("info", cleanTitle + avi, 0, 0, 0);
+                                                        DisplayMessage("warning", "... ", 0, 0, 0);
+                                                        CopyFile(fullSourcePath + avi, fullDestinationPath + avi);
+                                                        DisplayMessage("success", "DONE");
+                                                        intFileCopiedCount++;
+                                                    }
+                                                    else if (fileName.ToLower().Contains(srt))
+                                                    {
+                                                        DisplayMessage("warning", "Copying ", 0, 0, 0);
+                                                        DisplayMessage("info", cleanTitle + srt, 0, 0, 0);
+                                                        DisplayMessage("warning", "... ", 0, 0, 0);
+                                                        CopyFile(fullSourcePath + srt, fullDestinationPath + srt);
+                                                        DisplayMessage("success", "DONE");
+                                                    }
+
+                                                }
+                                                if (!movieFoundAtSource)
+                                                {
+                                                    Type("No movie file was found for " + cleanTitle + ".", 0, 0, 1, "Red");
+                                                    intFileNotFoundCount++;
+                                                }
                                             }
-                                            else if (fileName.ToUpper().Contains(".MKV"))
+                                            else
                                             {
-                                                fullSourcePath += ".mkv";
-                                                fullDestinationPath += ".mkv";
-                                                movieFoundAtSource = true;
-                                                CopyFile(fullSourcePath, fullDestinationPath);
-                                                intFileCopiedCount++;
-                                            }
-                                            else if (fileName.ToUpper().Contains(".M4V"))
-                                            {
-                                                fullSourcePath += ".m4v";
-                                                fullDestinationPath += ".m4v";
-                                                movieFoundAtSource = true;
-                                                CopyFile(fullSourcePath, fullDestinationPath);
-                                                intFileCopiedCount++;
-                                            }
-                                            else if (fileName.ToUpper().Contains(".AVI"))
-                                            {
-                                                fullSourcePath += ".avi";
-                                                fullDestinationPath += ".avi";
-                                                movieFoundAtSource = true;
-                                                CopyFile(fullSourcePath, fullDestinationPath);
-                                                intFileCopiedCount++;
-                                            }
-                                            else if (fileName.ToUpper().Contains(".EN.FORCED.SRT"))
-                                            {
-                                                fullSourcePath += ".en.forced.srt";
-                                                fullDestinationPath += ".en.forced.srt";
-                                                CopyFile(fullSourcePath, fullDestinationPath);
+                                                Type("No files found in source directory.", 0, 0, 1, "Magenta");
                                             }
 
                                         }
-                                        if (!movieFoundAtSource)
+                                        else
                                         {
-                                            Type("No movie file was found for " + cleanTitle + ".", 0, 0, 1, "Red");
-                                            intFileNotFoundCount++;
+                                            Type(sourcePathWithDriveLetter + " path was not found.", 0, 0, 1, "Magenta");
                                         }
                                     }
                                     else
                                     {
-                                        Type("No files found in source directory.", 0, 0, 1, "Magenta");
+                                        DisplayMessage("warning", cleanTitle, 0, 0, 0);
+                                        DisplayMessage("info", " is already at destination folder.");
+                                        intFileAlreadyThereCount++;
                                     }
-
                                 }
                                 else
                                 {
-                                    Type(sourcePathWithDriveLetter + " path was not found.", 0, 0, 1, "Magenta");
+                                    //Type("Skipped " + cleanTitle, 0, 0, 1, "Yellow");
+                                    intFileSkippedCount++;
                                 }
                             }
-                            else
+                            catch (Exception e)
                             {
-                                Type(cleanTitle + " is already at destination folder.", 0, 0, 1, "Blue");
-                                intFileAlreadyThereCount++;
+                                Type("Something went wrong when looking for: " + sourceHardDriveLetter + "\\" + movieDirectory + " | " + e.Message, 3, 100, 1, "Red");
+                                //throw;
                             }
-                        }
-                        else
-                        {
-                            Type("Skipped " + cleanTitle, 0, 0, 1, "Yellow");
-                            intFileSkippedCount++;
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        Type("Something went wrong when looking for: " + sourceHardDriveLetter + "\\" + movieDirectory + " | " + e.Message, 3, 100, 1, "Red");
-                        throw;
-                    }
 
+                        }
+                    } // End foreach
+                } // End if
+                
+
+                Console.WriteLine();
+
+                if (!repeatProcess)
+                {
+                    Type("It looks like that's the end of it.", 0, 0, 1);
+                    Type("Movies copied: " + intFileCopiedCount, 0, 0, 1, "Green");
+                    Type("Movies skipped: " + intFileSkippedCount, 0, 0, 1, "Yellow");
+                    Type("Source movies not found: " + intFileNotFoundCount, 0, 0, 1, "Red");
+                    Type("Movies already at destination: " + intFileAlreadyThereCount, 0, 0, 1, "Blue");
                 }
-            }
 
-            Console.WriteLine();
-            Type("It looks like theat's the end of it.", 0, 0, 1);
-            Type("Movies copied: " + intFileCopiedCount, 0, 0, 1, "Green");
-            Type("Movies skipped: " + intFileSkippedCount, 0, 0, 1, "Yellow");
-            Type("Source movies not found: " + intFileNotFoundCount, 0, 0, 1, "Red");
-            Type("Movies already at destination: " + intFileAlreadyThereCount, 0, 0, 1, "Blue");
+            } while (repeatProcess);
 
         } // End CopyMovieFiles()
 
@@ -3380,7 +3488,7 @@ namespace SheetsQuickstart
             }
 
             Console.WriteLine();
-            Type("It looks like theat's the end of it.", 0, 0, 1);
+            Type("It looks like that's the end of it.", 0, 0, 1);
             Type("Movies deleted: " + intFileDeletedCount, 0, 0, 1, "Green");
             Type("Movies skipped: " + intFileSkippedCount, 0, 0, 1, "Yellow");
             Type("Source movies not found: " + intFileNotFoundCount, 0, 0, 1, "Red");
@@ -3588,6 +3696,41 @@ namespace SheetsQuickstart
         }
 
         /// <summary>
+        /// Displays the message in the color based on type.
+        /// </summary>
+        /// <param name="messageType">error = red, success = green, warning = yellow, info = blue, question = darkyellow, default = grey.</param>
+        /// <param name="message">The message to display.</param>
+        /// <param name="numLines">The number of new lines to print out after the message.</param>
+        /// <param name="speed">The speed at which to type the letters (Higher the number the slower).</param>
+        /// <param name="pause">The amount of ms to pause before going to the next line.</param>
+        public static void DisplayMessage(string messageType, string message, int numLines = 1, int speed = 0, int pause = 0)
+        {
+            switch (messageType.ToLower())
+            {
+                case "error":
+                    Type(message, speed, pause, numLines, "red");
+                    break;
+                case "success":
+                    Type(message, speed, pause, numLines, "green");
+                    break;
+                case "warning":
+                    Type(message, speed, pause, numLines, "yellow");
+                    break;
+                case "info":
+                    Type(message, speed, pause, numLines, "blue");
+                    break;
+                case "question":
+                    Type(message, speed, pause, numLines, "darkyellow");
+                    break;
+                case "default":
+                    Type(message, speed, pause, numLines);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        /// <summary>
         /// Simply types out the text in a typewriter manner. Then adds the number of new lines.
         /// </summary>
         /// <param name="myString"></param>
@@ -3595,28 +3738,16 @@ namespace SheetsQuickstart
         /// <param name="timeToPauseBeforeNewLine"></param>
         /// <param name="numberOfNewLines"></param>
         /// <param name="color">Red, Green, Yellow, Blue, Magenta, Gray, Cyan, DarkBlue, DarkCyan, DarkGray, DarkGreen, DarkRed, DarkYellow</param>
-        static void Type(string myString, int speed, int timeToPauseBeforeNewLine, int numberOfNewLines, string color = "gray")
+        public static void Type(string myString, int speed, int timeToPauseBeforeNewLine, int numberOfNewLines, string color = "gray")
         {
             // First set the text color.
             switch (color.ToLower())
             {
-                case "red":
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    break;
-                case "green":
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    break;
-                case "yellow":
-                    Console.ForegroundColor = ConsoleColor.Yellow;
+                case "black":
+                    Console.ForegroundColor = ConsoleColor.Black;
                     break;
                 case "blue":
                     Console.ForegroundColor = ConsoleColor.Blue;
-                    break;
-                case "magenta":
-                    Console.ForegroundColor = ConsoleColor.Magenta;
-                    break;
-                case "gray":
-                    Console.ForegroundColor = ConsoleColor.Gray;
                     break;
                 case "cyan":
                     Console.ForegroundColor = ConsoleColor.Cyan;
@@ -3633,14 +3764,35 @@ namespace SheetsQuickstart
                 case "darkgreen":
                     Console.ForegroundColor = ConsoleColor.DarkGreen;
                     break;
+                case "darkmagenta":
+                    Console.ForegroundColor = ConsoleColor.DarkMagenta;
+                    break;
                 case "darkred":
                     Console.ForegroundColor = ConsoleColor.DarkRed;
                     break;
                 case "darkyellow":
                     Console.ForegroundColor = ConsoleColor.DarkYellow;
                     break;
+                case "gray":
+                    Console.ForegroundColor = ConsoleColor.Gray;
+                    break;
+                case "green":
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    break;
+                case "magenta":
+                    Console.ForegroundColor = ConsoleColor.Magenta;
+                    break;
+                case "red":
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    break;
+                case "white":
+                    Console.ForegroundColor = ConsoleColor.White;
+                    break;
+                case "yellow":
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    break;
                 default:
-                    
+                    Console.ForegroundColor = ConsoleColor.Gray;
                     break;
             }
 
@@ -3739,5 +3891,108 @@ namespace SheetsQuickstart
         //    } // End catch
 
         //} // End SendEmail()
+
+
+        ///////////////////////////////////////////////////////////////////////////
+        // THE FOLLOWING METHODS HAVE BEEN COPIED OVER TO THE BachFlixNfo.cs FILE FOR NEW CODE.
+        // HOWEVER, KEEP THEM COPIED HERE UNTIL I MOVE THE REST OF THE CODE OVER.
+        ///////////////////////////////////////////////////////////////////////////
+
+
+
+        /// <summary>
+        /// Simply writes the NFO File to the chosen path.
+        /// </summary>
+        /// <param name="path">The path to the folder location.</param>
+        /// <param name="fileText">The text of the NFO File to be saved.</param>
+        protected static void WriteNfoFile(string path, string fileText)
+        {
+            try
+            {
+                File.WriteAllText(path, fileText, Encoding.UTF8);
+            }
+            catch (Exception e)
+            {
+                Type("Something went wrong writing to path: " + path + " | " + e.Message, 3, 100, 1, "Red");
+                Type(e.Message, 3, 100, 2, "DarkRed");
+                throw;
+            }
+
+        } // End WriteNfoFile()
+
+        /// <summary>
+        /// Convert the number to the column letter.
+        /// i.e. 0 = A
+        /// </summary>
+        /// <param name="columnNum">The number of the column.</param>
+        /// <returns>The column letter.</returns>
+        protected static string ColumnNumToLetter(int columnNum)
+        {
+            if (columnNum < 53)
+            {
+                string[] myString = { "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "AA", "AB", "AC", "AD", "AE", "AF", "AG", "AH", "AI", "AJ", "AK", "AL", "AM", "AN", "AO", "AP", "AQ", "AR", "AS", "AT", "AU", "AV", "AW", "AX", "AY", "AZ" };
+
+                return myString[columnNum];
+            }
+            else
+            {
+                return "";
+            }
+
+        }
+
+        protected static bool WriteSingleCellToSheet(string strDataToSave, string strCellToSaveData)
+        {
+            try
+            {
+                Thread.Sleep(1000); // Sleep for a second so we don't go over the Google allotted requests.
+                // How the input data should be interpreted.
+                SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum valueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
+
+                // TODO: Assign values to desired properties of `requestBody`. All existing
+                // properties will be replaced:
+                ValueRange requestBody = new ValueRange
+                {
+                    MajorDimension = "COLUMNS" // "ROWS" / "COLUMNS"
+                };
+                var oblist = new List<object>() { strDataToSave };
+                requestBody.Values = new List<IList<object>> { oblist };
+
+                UserCredential credential;
+
+                using (var stream =
+                    new FileStream("credentials.json", FileMode.Open, FileAccess.Read))
+                {
+                    string credPath = "token.json";
+                    credential = GoogleWebAuthorizationBroker.AuthorizeAsync(
+                        GoogleClientSecrets.Load(stream).Secrets,
+                        SCOPES,
+                        "user",
+                        CancellationToken.None,
+                        new FileDataStore(credPath, true)).Result;
+                }
+
+                SheetsService sheetsService = new SheetsService(new BaseClientService.Initializer
+                {
+                    HttpClientInitializer = credential,
+                    ApplicationName = "Google-SheetsSample/0.1",
+                });
+
+                SpreadsheetsResource.ValuesResource.UpdateRequest request = sheetsService.Spreadsheets.Values.Update(requestBody, SPREADSHEET_ID, strCellToSaveData);
+                request.ValueInputOption = valueInputOption;
+
+                // To execute asynchronously in an async method, replace `request.Execute()` as shown:
+                UpdateValuesResponse response = request.Execute();
+                // Data.UpdateValuesResponse response = await request.ExecuteAsync();
+                return true;
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.Message);
+                throw;
+            }
+
+        } // End WriteSingleCellToSheet
+
     } // End class
 } // End namespace
