@@ -3293,66 +3293,55 @@ namespace SheetsQuickstart
                                         var fullSourcePath = sourcePathWithDriveLetter + "\\" + cleanTitle;
                                         if (Directory.Exists(sourcePathWithDriveLetter))
                                         {
-                                            var movieFoundAtSource = false;
                                             // Process the list of files found in the destination.
                                             string[] sourceFileEntries = Directory.GetFiles(sourcePathWithDriveLetter);
                                             if (sourceFileEntries.Length > 0)
                                             {
+                                                var movieFoundAtSource = false;
                                                 foreach (string fileName in sourceFileEntries)
                                                 {
+                                                    movieFoundAtSource = false;
                                                     string mp4 = ".mp4",
                                                            mkv = ".mkv",
                                                            m4v = ".m4v",
                                                            avi = ".avi",
-                                                           srt = ".en.forced.srt";
+                                                           srt = ".en.forced.srt",
+                                                           extension = "";
                                                     if (fileName.ToLower().Contains(mp4))
                                                     {
+                                                        extension = mp4;
                                                         movieFoundAtSource = true;
-                                                        DisplayMessage("warning", "Copying ", 0, 0, 0);
-                                                        DisplayMessage("info", cleanTitle + mp4, 0, 0, 0);
-                                                        DisplayMessage("warning", "... ", 0, 0, 0);
-                                                        CopyFile(fullSourcePath + mp4, fullDestinationPath + mp4);
-                                                        DisplayMessage("success", "DONE");
-                                                        intFileCopiedCount++;
                                                     }
                                                     else if (fileName.ToLower().Contains(mkv))
                                                     {
                                                         movieFoundAtSource = true;
-                                                        DisplayMessage("warning", "Copying ", 0, 0, 0);
-                                                        DisplayMessage("info", cleanTitle + mkv, 0, 0, 0);
-                                                        DisplayMessage("warning", "... ", 0, 0, 0);
-                                                        CopyFile(fullSourcePath + mkv, fullDestinationPath + mkv);
-                                                        DisplayMessage("success", "DONE");
-                                                        intFileCopiedCount++;
+                                                        extension = mkv;
                                                     }
                                                     else if (fileName.ToLower().Contains(m4v))
                                                     {
                                                         movieFoundAtSource = true;
-                                                        DisplayMessage("warning", "Copying ", 0, 0, 0);
-                                                        DisplayMessage("info", cleanTitle + m4v, 0, 0, 0);
-                                                        DisplayMessage("warning", "... ", 0, 0, 0);
-                                                        CopyFile(fullSourcePath + m4v, fullDestinationPath + m4v);
-                                                        DisplayMessage("success", "DONE");
-                                                        intFileCopiedCount++;
+                                                        extension = m4v;
                                                     }
                                                     else if (fileName.ToLower().Contains(avi))
                                                     {
                                                         movieFoundAtSource = true;
-                                                        DisplayMessage("warning", "Copying ", 0, 0, 0);
-                                                        DisplayMessage("info", cleanTitle + avi, 0, 0, 0);
-                                                        DisplayMessage("warning", "... ", 0, 0, 0);
-                                                        CopyFile(fullSourcePath + avi, fullDestinationPath + avi);
-                                                        DisplayMessage("success", "DONE");
-                                                        intFileCopiedCount++;
+                                                        extension = avi;
                                                     }
                                                     else if (fileName.ToLower().Contains(srt))
                                                     {
-                                                        DisplayMessage("warning", "Copying ", 0, 0, 0);
-                                                        DisplayMessage("info", cleanTitle + srt, 0, 0, 0);
-                                                        DisplayMessage("warning", "... ", 0, 0, 0);
-                                                        CopyFile(fullSourcePath + srt, fullDestinationPath + srt);
-                                                        DisplayMessage("success", "DONE");
+                                                        movieFoundAtSource = true;
+                                                        extension = srt;
                                                     }
+
+                                                    if (movieFoundAtSource)
+                                                    {
+                                                        DisplayMessage("info", "Copying ", 0);
+                                                        DisplayMessage("default", cleanTitle + extension + "... ", 0);
+                                                        CopyFile(fullSourcePath + extension, fullDestinationPath + extension);
+                                                        DisplayMessage("success", "DONE");
+                                                        intFileCopiedCount++;
+                                                    }
+                                                    
 
                                                 }
                                                 if (!movieFoundAtSource)
@@ -3374,8 +3363,8 @@ namespace SheetsQuickstart
                                     }
                                     else
                                     {
-                                        DisplayMessage("warning", cleanTitle, 0, 0, 0);
-                                        DisplayMessage("info", " is already at destination folder.");
+                                        //DisplayMessage("default", cleanTitle, 0);
+                                        //DisplayMessage("info", " is already at destination folder.");
                                         intFileAlreadyThereCount++;
                                     }
                                 }
