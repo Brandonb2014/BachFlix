@@ -78,6 +78,8 @@ C:\Users\Brandon\OneDrive\BachFlixNfo\BachFlixNfo\bin\Debug\policy.2.0.taglib-sh
 C:\Users\Brandon\OneDrive\BachFlixNfo\BachFlixNfo\obj\Debug\BachFlixNfo.csproj.CopyComplete
 C:\Users\Brandon\OneDrive\BachFlixNfo\BachFlixNfo\obj\Debug\BachFlixNfo.exe
 C:\Users\Brandon\OneDrive\BachFlixNfo\BachFlixNfo\obj\Debug\BachFlixNfo.pdb
+C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\obj\Debug\BachFlixNfo.csproj.CoreCompileInputs.cache
+C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\obj\Debug\BachFlixNfo.csprojAssemblyReference.cache
 C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\bin\Debug\BachFlixNfo.exe.config
 C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\bin\Debug\BachFlixNfo.exe
 C:\Users\Brandon\Documents\BachFlixNfo\BachFlixNfo\bin\Debug\BachFlixNfo.pdb

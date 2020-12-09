@@ -1,6 +1,7 @@
 ﻿using Newtonsoft.Json;
 using RestSharp;
 using SheetsQuickstart;
+using System.Threading;
 
 namespace TmdbApiCall
 {
@@ -17,14 +18,20 @@ namespace TmdbApiCall
         /// <returns></returns>
         public static dynamic MoviesGetDetails(string ImdbId)
         {
-            string strRestClient = "https://api.themoviedb.org/3/movie/" + ImdbId + "?api_key=" + TMDB_API_KEY + "&language=en-US";
+            Thread.Sleep(250);
+            string strRestClient = "https://api.themoviedb.org/3/find/" + ImdbId + "?api_key=" + TMDB_API_KEY + "&language=en-US&external_source=imdb_id";
 
             RestClient client = new RestClient(strRestClient);
             RestRequest request = new RestRequest(Method.GET);
-            request.AddParameter("undefined", "{}", ParameterType.RequestBody);
             IRestResponse response = client.Execute(request);
-            dynamic json = JsonConvert.DeserializeObject(response.Content);
-            return json;
+            if (response.IsSuccessful)
+            {
+                dynamic json = JsonConvert.DeserializeObject(response.Content);
+                return json;
+            } else
+            {
+                return "";
+            }
         }
 
         public static dynamic TvEpisodesGetDetails(string TmdbId, string seasonNum, string episodeNum)
@@ -36,7 +43,6 @@ namespace TmdbApiCall
             try
             {
                 string strRestClient = "https://api.themoviedb.org/3/tv/" + TmdbId + "/season/" + seasonNum + "/episode/" + episodeNum + "?api_key=" + TMDB_API_KEY + "&language=en-US";
-
                 RestClient client = new RestClient(strRestClient);
                 RestRequest request = new RestRequest(Method.GET);
                 request.AddParameter("undefined", "{}", ParameterType.RequestBody);

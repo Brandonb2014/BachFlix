@@ -13,6 +13,8 @@ using System.Diagnostics;
 using TmdbApiCall;
 using BachFlixNfoCall;
 using System.Collections;
+using System.Management;
+using Newtonsoft.Json;
 
 namespace SheetsQuickstart
 {
@@ -20,23 +22,25 @@ namespace SheetsQuickstart
     {
         // Data ranges for each sheet.
         private const string MOVIES_TITLE_RANGE = "Movies!A2:2";
-        private const string MOVIES_DATA_RANGE = "Movies!A3:4010";
+        private const string MOVIES_DATA_RANGE = "Movies!A3:5200";
         private const string TEMP_MOVIES_TITLE_RANGE = "Temp!A2:2";
         private const string TEMP_MOVIES_DATA_RANGE = "Temp!A3:2001";
         private const string YOUTUBE_TITLE_RANGE = "YouTube!A2:2";
         private const string YOUTUBE_DATA_RANGE = "YouTube!A3:2344";
         private const string FITNESS_VIDEO_TITLE_RANGE = "Fitness Videos!A1:1";
-        private const string FITNESS_VIDEO_DATA_RANGE = "Fitness Videos!A2:1000";
+        private const string FITNESS_VIDEO_DATA_RANGE = "Fitness Videos!A2:401";
         private const string BONUS_TITLE_RANGE = "Bonus!A1:1";
         private const string BONUS_DATA_RANGE = "Bonus!A2:2036";
-        private const string EPISODES_TITLE_RANGE = "Episodes!A1:1";
-        private const string EPISODES_DATA_RANGE = "Episodes!A2:2000";
+        private const string EPISODES_TITLE_RANGE = "Episodes!A2:2";
+        private const string EPISODES_DATA_RANGE = "Episodes!A3:1200";
         private const string TEMP_EPISODES_TITLE_RANGE = "Temp Episodes!A1:1";
         private const string TEMP_EPISODES_DATA_RANGE = "Temp Episodes!A2:1000";
         private const string COMBINED_EPISODES_TITLE_RANGE = "Combined Episodes!A2:2";
-        private const string COMBINED_EPISODES_DATA_RANGE = "Combined Episodes!A3:1001";
+        private const string COMBINED_EPISODES_DATA_RANGE = "Combined Episodes!A3:1502";
         private const string RECORDED_NAMES_TITLE_RANGE = "Recorded Names!A2:2";
-        private const string RECORDED_NAMES_DATA_RANGE = "Recorded Names!A3:1000";
+        private const string RECORDED_NAMES_DATA_RANGE = "Recorded Names!A3:1102";
+        private const string DB_TITLE_RANGE = "DB!A2:2";
+        private const string DB_DATA_RANGE = "DB!A3:502";
 
         // The following are the column titles for the Movies sheet. (I guess in case I change the column header I don't have to change it in so many places... but I've yet needed this)
         private const string DIRECTORY = "Directory";
@@ -72,7 +76,7 @@ namespace SheetsQuickstart
             missingMovieNfoFilesChoice,
             overwriteAllMovieNfoFilesChoice,
             selectedMovieNfoFilesChoice,
-            missingTvShowNfoFilesChoice,
+            missingCombinedEpisodeNfoFilesChoice,
             overwriteAllTvShowNfoFilesChoice,
             selectedTvShowNfoFilesChoice,
             missingYoutubeNfoFilesChoice,
@@ -91,6 +95,7 @@ namespace SheetsQuickstart
             convertTempTvShowsChoice,
             convertTempTVShowsSlowChoice,
             insertMissingMovieDataChoice,
+            updateMovieDataChoice,
             insertMissingTmdbIdsChoice,
             insertAndOverwriteTmdbIdsChoice,
             copyMovieFilesToDestinationChoice,
@@ -101,14 +106,28 @@ namespace SheetsQuickstart
             bothTrimAndCreateFoldersChoice,
             findSizeOfVideoFilesInDirectoryChoice,
             fetchTvShowPlotsChoice,
-            fixRecordedNamesChoice;
+            fixRecordedNamesChoice,
+            copyMultipleFilesToOneLocationChoice,
+            insertMissingDbDataChoice,
+            updateDbSheetChoice,
+            insertMissingCombinedEpisodesChoice,
+            updateCombinedEpisodesChoice,
+            writeToCombinedEpisodesChoice,
+            insertMissingEpisodeDataChoice;
 
         static string fileSize;
         static long fileSizeBytes;
-        static long runningDifference = 0;
+        // runningDifference holds the total amount of savings in this run.
+        // runningSessionSavings holds the total amount of savings for as long as the current session has been open.
+        // totalSessionSavings holds the total size of files this session.
+        // runningFileSize holds the size of the original files as we re-encode them.
+        // runningSessionFileSize holds the size of the original files as we re-encode them for as long as this current session has been open.
+        static long runningDifference = 0, runningSessionSavings = 0, totalSessionSavings = 0,
+                runningFileSize = 0, runningSessionFileSize = 0;
 
         private const int STARTING_ROW_NUMBER = 3;
         static TimeSpan runningTotalConversionTime = new TimeSpan();
+        static TimeSpan sessionDuration = new TimeSpan();
 
         // If modifying these scopes, delete your previously saved credentials
         // at \BachFlixNfo\bin\Debug\token.json\Google.Apis.Auth.OAuth2.Responses.TokenResponse-user
@@ -118,7 +137,7 @@ namespace SheetsQuickstart
 
         static void Main(string[] args)
         {
-            Type("Hello, and welcome to the BachFlix NFO Filer 3000!", 0, 0, 1, "blue");
+            Type("Welcome to the BachFlix NFO Filer 3000! v1.5", 0, 0, 1, "blue");
 
             bool keepAskingForChoice = true;
 
@@ -136,7 +155,8 @@ namespace SheetsQuickstart
                             if (!keepAskingForChoice) break;
                         }
                     }
-                } else
+                }
+                else
                 {
                     Type("You must input an option.", 0, 0, 1, "Red");
                 }
@@ -163,8 +183,8 @@ namespace SheetsQuickstart
             Type(overwriteAllMovieNfoFilesChoice + "- Overwrite ALL Movie NFO Files", 0, 0, 1, "darkgreen");
             selectedMovieNfoFilesChoice = "n1s";
             Type(selectedMovieNfoFilesChoice + "- Selected Movie NFO Files", 0, 0, 1, "darkgreen");
-            missingTvShowNfoFilesChoice = "n2";
-            Type(missingTvShowNfoFilesChoice + "- Missing TV Show NFO Files (Under Construction)", 0, 0, 1, "darkgreen");
+            missingCombinedEpisodeNfoFilesChoice = "n2";
+            Type(missingCombinedEpisodeNfoFilesChoice + "- Create missing NFO files for Combined TV Show episodes.", 0, 0, 1, "darkgreen");
             overwriteAllTvShowNfoFilesChoice = "n2o";
             Type(overwriteAllTvShowNfoFilesChoice + "- Overwrite ALL TV Show NFO Files (Under Construction)", 0, 0, 1, "darkgreen");
             selectedTvShowNfoFilesChoice = "n2s";
@@ -202,18 +222,31 @@ namespace SheetsQuickstart
             convertDirectoryChoice = "19";
             Type(convertDirectoryChoice + "- Convert a selected directory.", 0, 0, 1, "darkcyan");
 
-            Type("--- Make Old ---", 0, 0, 1, "darkyellow");
-            Type("5o- Set Movies old.", 0, 0, 1, "darkcyan");
-            Type("6o- Set Bonus Features old.", 0, 0, 1, "darkcyan");
-            Type("7o- Set TV Shows old.", 0, 0, 1, "darkcyan");
-
-            Type("--- TMDB Call ---", 0, 0, 1, "green");
+            Type("--- TMDB Call ---", 0, 0, 1, "green"); 
             insertMissingMovieDataChoice = "10";
             Type(insertMissingMovieDataChoice + "- Insert movie data into the Google Sheet (plot, rating, & TMDB ID).", 0, 0, 1, "green");
+            updateMovieDataChoice = "10o";
+            Type(updateMovieDataChoice + "- Insert and overwrite movie data into the Google Sheet (plot, rating, & TMDB ID).", 0, 0, 1, "green");
             insertMissingTmdbIdsChoice = "11";
             Type(insertMissingTmdbIdsChoice + "- Insert missing TMDB IDs into the Google Sheet.", 0, 0, 1, "green");
-            insertAndOverwriteTmdbIdsChoice = "11a";
+            insertAndOverwriteTmdbIdsChoice = "11o";
             Type(insertAndOverwriteTmdbIdsChoice + "- Insert and override TMDB IDs in the Google Sheet.", 0, 0, 1, "green");
+            fetchTvShowPlotsChoice = "25";
+            Type(fetchTvShowPlotsChoice + "- Insert TV Show plots into the Combined Episodes sheet.", 0, 0, 1, "green");
+
+            Type("--- Update Google Sheet ---", 0, 0, 1, "Magenta");
+            insertMissingDbDataChoice = "28";
+            Type(insertMissingDbDataChoice + "- Insert missing data into the DB sheet from TVDB.", 0, 0, 1, "Magenta");
+            updateDbSheetChoice = "29";
+            Type(updateDbSheetChoice + "- Update the DB sheet with updated info.", 0, 0, 1, "Magenta");
+            insertMissingCombinedEpisodesChoice = "30";
+            Type(insertMissingCombinedEpisodesChoice + "- Insert missing data into the Combined Episodes sheet from TVDB.", 0, 0, 1, "Magenta");
+            updateCombinedEpisodesChoice = "31";
+            Type(updateCombinedEpisodesChoice + "- Update data in the Combined Episodes sheet from TVDB.", 0, 0, 1, "Magenta");
+            writeToCombinedEpisodesChoice = "32";
+            Type(writeToCombinedEpisodesChoice + "- Write video file names to the Combined Episodes sheet.", 0, 0, 1, "Magenta");
+            insertMissingEpisodeDataChoice = "33";
+            Type(insertMissingEpisodeDataChoice + "- Write episode names to the Episodes sheet.", 0, 0, 1, "Magenta");
 
             Type("--- Misc. ---", 0, 0, 1, "darkyellow");
             Type("8- Count Files", 0, 0, 1, "darkyellow");
@@ -221,11 +254,11 @@ namespace SheetsQuickstart
             Type("12- Move Kids movies.", 0, 0, 1, "darkyellow");
             Type("13- Copy JPG files. (Work in progress)", 0, 0, 1, "darkyellow");
             copyMovieFilesToDestinationChoice = "14c";
-            Type(copyMovieFilesToDestinationChoice + "- Copy Movie files.", 0, 0, 1, "darkyellow");
+            Type(copyMovieFilesToDestinationChoice + "- Copy Movie files from Google Sheet list to chosen hard drive.", 0, 0, 1, "darkyellow");
             deleteMovieFilesAtDestinationChoice = "14d";
-            Type(deleteMovieFilesAtDestinationChoice + "- Delete Movie files.", 0, 0, 1, "darkyellow");
+            Type(deleteMovieFilesAtDestinationChoice + "- Delete Movie files from Google Sheet list to chosen hard drive.", 0, 0, 1, "darkyellow");
             Type("15- Mark Owned Movies as D=Done || X=Not Done.", 0, 0, 1, "darkyellow");
-            Type("16- Remove movies from TMDB List.", 0, 0, 1, "darkyellow");
+            Type("16- Remove movies from TMDB List. (Work in progress)", 0, 0, 1, "darkyellow");
             Type("17- Move Movies to new rating directory.", 0, 0, 1, "darkyellow");
             removeMetadataChoice = "18";
             Type(removeMetadataChoice + "- Remove Metadata.", 0, 0, 1, "darkyellow");
@@ -238,10 +271,10 @@ namespace SheetsQuickstart
             Type(bothTrimAndCreateFoldersChoice + "- Trim the titles AND create directories then move files into directories.", 0, 0, 1, "darkyellow");
             findSizeOfVideoFilesInDirectoryChoice = "24";
             Type(findSizeOfVideoFilesInDirectoryChoice + "- Give the size of video files in a directory.", 0, 0, 1, "darkyellow");
-            fetchTvShowPlotsChoice = "25";
-            Type(fetchTvShowPlotsChoice + "- Gather the TV Show episode plots from TVDB.", 0, 0, 1, "darkyellow");
             fixRecordedNamesChoice = "26";
             Type(fixRecordedNamesChoice + "- Fix recorded names.", 0, 0, 1, "darkyellow");
+            copyMultipleFilesToOneLocationChoice = "27";
+            Type(copyMultipleFilesToOneLocationChoice + "- Copy multiple chosen files to one location.", 0, 0, 1, "darkyellow");
 
             return Console.ReadLine().Split(',');
 
@@ -316,6 +349,26 @@ namespace SheetsQuickstart
                     IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
 
                     CreateNfoFiles(movieData, sheetVariables, type);
+                }
+                else if (choice.Trim().Equals(missingCombinedEpisodeNfoFilesChoice)) // Create missing NFO files for TV Show episodes.
+                {
+                    Type("Create missing NFO files for TV Show episodes. Let's go!", 7, 100, 1);
+                    var directory = AskForDirectory();
+
+                    if (directory != "0")
+                    {// A dictionary to hold the columns we need to find.
+                        sheetVariables.Add("TVDB ID", -1); // The ID from the TVDB.
+                        sheetVariables.Add("Combined Episode Name", -1); // The original combined episode name that needs to be changed.
+                        sheetVariables.Add("New Episode Name", -1); // The name to change the episode to.
+                        sheetVariables.Add("NFO Body", -1); // The text of the NFO file.
+
+                        titleRowDataRange = COMBINED_EPISODES_TITLE_RANGE;
+                        mainDataRange = COMBINED_EPISODES_DATA_RANGE;
+
+                        IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+
+                        CreateMissingCombinedEpisodeNfoFiles(movieData, sheetVariables, directory);
+                    }
                 }
                 else if (choice.Trim().Equals(missingYoutubeNfoFilesChoice)) // NFO files for New videos - does not overwrite any, just puts in missing NFO files.
                 {
@@ -394,7 +447,7 @@ namespace SheetsQuickstart
 
                     //BachFlixNfo.MissingFitnessVideoNfoFiles(videoData, sheetVariables);
                 }
-                else if (choice.Trim().Equals(overwriteAllYoutubeNfoFilesChoice)) // NFO files for All videos - overwrite old NFO files AND put in new ones.
+                else if (choice.Trim().Equals(overwriteAllFitnessVideoNfoFilesChoice)) // NFO files for All videos - overwrite old NFO files AND put in new ones.
                 {
                     Type("Overwrite ALL YouTube NFO Files. Let's go!", 7, 100, 1, "Blue");
 
@@ -468,14 +521,18 @@ namespace SheetsQuickstart
                 }
                 else if (choice.Trim().Equals(convertTvShowsChoice)) // Convert TV Shows the fast cheap way.
                 {
+                    DisplayMessage("info", "Convert TV Show Episodes. Let's go!");
                     // A dictionary to hold the columns we need to find.
                     sheetVariables.Add("Directory", -1); // The path to the folder holding the video.
+                    sheetVariables.Add("Show", -1); // The show title.
+                    sheetVariables.Add("Season #", -1); // The Season #.
                     sheetVariables.Add("Clean Title", -1); // Concatenate the Clean Title to the Directory.
                     sheetVariables.Add("ISO Input", -1); // The path to the ISO file.
                     sheetVariables.Add("ISO Title #", -1); // The number of the ISO title to use.
                     sheetVariables.Add("ISO Ch #", -1); // The number of the ISO chapter to use.
                     sheetVariables.Add("Quick Create", -1); // Convert the selected files.
                     sheetVariables.Add("Additional Commands", -1); // Add any additional commands to the convert process.
+                    sheetVariables.Add("Override Show", -1); // Grab this incase the show title nedds to be overwritten.
 
                     titleRowDataRange = EPISODES_TITLE_RANGE;
                     mainDataRange = EPISODES_DATA_RANGE;
@@ -485,32 +542,45 @@ namespace SheetsQuickstart
                 }
                 else if (choice.Trim().Equals(convertDirectoryChoice)) // Convert a directory.
                 {
-                    Type("Convert a directory. Let's go!", 7, 100, 1);
+                    DisplayMessage("info", "Convert a directory. Let's go!");
                     var directory = AskForDirectory();
 
                     if (directory != "0")
                     {
-                        // Grab all files in the directory.
-                        Type("Grabbing all files... ", 10, 0, 0, "Yellow");
-                        string[] fileEntries = Directory.GetFiles(directory);
-                        Type("DONE", 100, 0, 1, "Green");
+                        bool keepLooping = true;
+                        do
+                        {
+                            // Grab all files in the directory.
+                            DisplayMessage("warning", "Grabbing all files... ", 0);
+                            string[] fileEntries = Directory.GetFiles(directory);
+                            DisplayMessage("success", "DONE");
 
-                        // Filter out the files that aren't video files.
-                        ArrayList videoFiles = GrabMovieFiles(fileEntries);
+                            // Filter out the files that aren't video files.
+                            ArrayList videoFiles = GrabMovieFiles(fileEntries);
 
-                        fileSizeBytes = SizeOfFiles(videoFiles);
+                            fileSizeBytes = SizeOfFiles(videoFiles);
+                            totalSessionSavings += fileSizeBytes;
 
-                        fileSize = FormatSize(fileSizeBytes);
+                            fileSize = FormatSize(fileSizeBytes);
 
-                        string plural = videoFiles.Count == 1 ? " file " : " files ";
 
-                        Type("The size of the " + videoFiles.Count + plural + "is: ", 0, 0, 0, "Blue");
-                        Type(fileSize, 0, 0, 1, "Cyan");
+                            string plural = videoFiles.Count == 1 ? " file " : " files ";
 
-                        // Send those video files off to be converted.
-                        ConvertHandbrakeList(videoFiles);
+                            DisplayMessage("info", "The size of the " + videoFiles.Count + plural + "is: ", 0);
+                            DisplayMessage("data", fileSize);
 
-                        ResetGlobals();
+                            // Send those video files off to be converted.
+                            ConvertHandbrakeList(videoFiles);
+
+                            ResetGlobals();
+
+                            // Check for more files.
+                            DisplayMessage("warning", "Checking for more files... ");
+                            fileEntries = Directory.GetFiles(directory);
+                            ArrayList videoFilesCheck = GrabMovieFiles(fileEntries);
+                            if (videoFilesCheck.Count == 0) keepLooping = false;
+                            else DisplayMessage("info", "More files found. Restarting conversion...");
+                        } while (keepLooping);
                     }
 
                 }
@@ -566,7 +636,7 @@ namespace SheetsQuickstart
                 }
                 else if (choice.Trim().Equals(fixRecordedNamesChoice)) // Fix recorded names.
                 {
-                    DisplayMessage("info", "Fix the recorded names. Let's go!", 7, 100, 1);
+                    DisplayMessage("info", "Let's go!", 7, 100, 1);
                     var directory = AskForDirectory();
 
                     if (directory != "0")
@@ -581,6 +651,38 @@ namespace SheetsQuickstart
                         IList<IList<Object>> videoData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
 
                         BachFlixNfo.FixRecordedNames(videoData, sheetVariables, directory);
+                    }
+
+                }
+                else if (choice.Trim().Equals(copyMultipleFilesToOneLocationChoice)) // Copy an array of files to one location.
+                {
+                    DisplayMessage("info", "Let's go!", 2);
+
+                    ArrayList videoFiles = AskForFilesToCopy();
+
+                    var directory = AskForDirectory("Now, where are we copying these files to?");
+
+                    if (directory != "0")
+                    {
+                        try
+                        {
+                            DisplayMessage("warning", "We will now copy each file...");
+
+                            foreach (var myFile in videoFiles)
+                            {
+                                DisplayMessage("info", "Copying ", 0);
+                                string fileName = Path.GetFileName(myFile.ToString());
+                                DisplayMessage("default", fileName + "... ", 0);
+                                File.Copy(myFile.ToString(), Path.Combine(directory, fileName));
+                                DisplayMessage("success", "DONE");
+                            }
+                        }
+                        catch (Exception e)
+                        {
+                            DisplayMessage("error", "An error occured copying the files.");
+                            DisplayMessage("harderror", e.Message);
+                            throw;
+                        }
                     }
 
                 }
@@ -599,7 +701,7 @@ namespace SheetsQuickstart
                         {
                             DateTime convertedTime = DateTime.Now;
 
-                            AddComment(myFile.ToString(), "Converted on: " + convertedTime.ToString("MM/dd/yyyy"));
+                            AddComment(myFile.ToString(), "Recorded in HD, re-encoded with black bars.\nConverted on: " + convertedTime.ToString("MM/dd/yyyy"));
                         }
                     }
                 }
@@ -655,6 +757,7 @@ namespace SheetsQuickstart
                 {
                     Type("Insert missing movie data into the Google Sheet. Let's go!", 7, 100, 1);
                     // A dictionary to hold the columns we need to find.
+                    sheetVariables.Add("RowNum", -1); // Simply the row number we are on, to better help writing back to the Sheet.
                     sheetVariables.Add("TMDB ID", -1); // The TMDB ID to input into the sheet.
                     sheetVariables.Add("TMDB Rating", -1); // The TMDB Rating to input into the sheet.
                     sheetVariables.Add("Plot", -1); // The movie plot to input into the sheet.
@@ -666,7 +769,31 @@ namespace SheetsQuickstart
 
                     IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
 
+                    DisplayMessage("warning", "Looking through sheet data for missing data... ");
                     InputMovieData(movieData, sheetVariables);
+                    DisplayMessage("success", "Done");
+
+                }
+                else if (choice.Trim().Equals(updateMovieDataChoice))
+                {
+                    Type("Insert missing and update movie data into the Google Sheet. Let's go!", 7, 100, 1);
+                    // A dictionary to hold the columns we need to find.
+                    sheetVariables.Add("RowNum", -1); // Simply the row number we are on, to better help writing back to the Sheet.
+                    sheetVariables.Add("TMDB ID", -1); // The TMDB ID to input into the sheet.
+                    sheetVariables.Add("TMDB Rating", -1); // The TMDB Rating to input into the sheet.
+                    sheetVariables.Add("Plot", -1); // The movie plot to input into the sheet.
+                    sheetVariables.Add("IMDB ID", -1); // The IMDB ID to grab the movie data from the TMDB API.
+                    sheetVariables.Add("IMDB Title", -1); // Used to print out if the write was successfull or not.
+                    sheetVariables.Add("Quick Create", -1); // Used to mark which movie plot was updated and needs the NFO file updated.
+
+                    titleRowDataRange = MOVIES_TITLE_RANGE;
+                    mainDataRange = MOVIES_DATA_RANGE;
+
+                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+
+                    DisplayMessage("warning", "Looking through sheet data to update data... ");
+                    InputMovieData(movieData, sheetVariables, true);
+                    DisplayMessage("success", "Done");
 
                 }
                 else if (choice.Trim().Equals(insertMissingTmdbIdsChoice)) // Insert TMDB IDs into the Google Sheet.
@@ -815,10 +942,145 @@ namespace SheetsQuickstart
                         RemoveMetadata(videoFiles);
                     }
                 }
+                else if (choice.Trim().Equals(insertMissingDbDataChoice))
+                {
+                    DisplayMessage("info", "Insert missing data into the DB sheet from TVDB. Let's go!");
+                    // A dictionary to hold the columns we need to find.
+                    sheetVariables.Add("RowNum", -1); // Simply the row number we are on, to better help writing back to the Sheet.
+                    sheetVariables.Add("Series Name", -1); // The name of the series to populate if empty.
+                    sheetVariables.Add("Season Count", -1); // The number of seasons for the show.
+                    sheetVariables.Add("Continuing?", -1); // If the show is continuing or not.
+                    sheetVariables.Add("TVDB Slug", -1); // The show slug to add to the url call.
+                    sheetVariables.Add("TVDB ID", -1); // The ID of the TV Show to use for gathering episode data.
+
+                    var jwtToken = TvdbApiCall.TvdbApi.GetTvdbJwtKey();
+
+                    titleRowDataRange = DB_TITLE_RANGE;
+                    mainDataRange = DB_DATA_RANGE;
+
+                    IList<IList<Object>> dbData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+
+                    InsertMissingDbData(dbData, sheetVariables, jwtToken);
+
+                }
+                else if (choice.Trim().Equals(updateDbSheetChoice))
+                {
+                    DisplayMessage("info", "Update DB sheet info. Let's go!");
+                    // A dictionary to hold the columns we need to find.
+                    sheetVariables.Add("RowNum", -1); // Simply the row number we are on, to better help writing back to the Sheet.
+                    sheetVariables.Add("Series Name", -1); // The name of the series to populate if empty.
+                    sheetVariables.Add("Season Count", -1); // The number of seasons for the show.
+                    sheetVariables.Add("Continuing?", -1); // If the show is continuing or not.
+                    sheetVariables.Add("TVDB Slug", -1); // The show slug to add to the url call.
+                    sheetVariables.Add("TVDB ID", -1); // The ID of the TV Show to use for gathering episode data.
+
+                    var jwtToken = TvdbApiCall.TvdbApi.GetTvdbJwtKey();
+
+                    titleRowDataRange = DB_TITLE_RANGE;
+                    mainDataRange = DB_DATA_RANGE;
+
+                    IList<IList<Object>> dbData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+
+                    UpdateDbData(dbData, sheetVariables, jwtToken);
+                }
+                else if (choice.Trim().Equals(insertMissingCombinedEpisodesChoice))
+                {
+                    DisplayMessage("info", "Insert missing data into the Combined Episodes sheet from TVDB. Let's go!");
+                    // A dictionary to hold the columns we need to find.
+                    sheetVariables.Add("RowNum", -1); // Simply the row number we are on, to better help writing back to the Sheet.
+                    sheetVariables.Add("TVDB ID", -1); // The ID of the TV Show to use for gathering episode data.
+                    sheetVariables.Add("Episode 1 Season", -1); // The season number for the first episode.
+                    sheetVariables.Add("Episode 1 No.", -1); // The episode number for the first episode.
+                    sheetVariables.Add("Episode 1 Plot", -1); // The plot for the first episode.
+                    sheetVariables.Add("Episode 2 Season", -1); // The season number for the second episode.
+                    sheetVariables.Add("Episode 2 No.", -1); // The episode number for the second episode.
+                    sheetVariables.Add("Episode 2 Plot", -1); // The plot for the second episode.
+                    sheetVariables.Add("Show Title", -1); // Simply the title to the show.
+
+                    var jwtToken = TvdbApiCall.TvdbApi.GetTvdbJwtKey();
+
+                    titleRowDataRange = COMBINED_EPISODES_TITLE_RANGE;
+                    mainDataRange = COMBINED_EPISODES_DATA_RANGE;
+
+                    IList<IList<Object>> dbData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+
+                    InsertMissingCombinedEpisodeData(dbData, sheetVariables, jwtToken);
+                }
+                else if (choice.Trim().Equals(insertMissingEpisodeDataChoice))
+                {
+                    DisplayMessage("info", "Insert missing data into the Episodes sheet from TVDB. Let's go!");
+                    // A dictionary to hold the columns we need to find.
+                    sheetVariables.Add("RowNum", -1); // Simply the row number we are on, to better help writing back to the Sheet.
+                    sheetVariables.Add("TVDB ID", -1); // The ID of the TV Show to use for gathering episode data.
+                    sheetVariables.Add("Season #", -1); // The season number for the episode.
+                    sheetVariables.Add("Episode #", -1); // The episode number for the episode.
+                    sheetVariables.Add("Episode Name", -1); // The name of the episode.
+                    sheetVariables.Add("Plot", -1); // The plot of the episode.
+                    sheetVariables.Add("Show", -1); // The name of the series.
+
+                    var jwtToken = TvdbApiCall.TvdbApi.GetTvdbJwtKey();
+
+                    titleRowDataRange = EPISODES_TITLE_RANGE;
+                    mainDataRange = EPISODES_DATA_RANGE;
+
+                    IList<IList<Object>> dbData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+
+                    InsertMissingEpisodeData(dbData, sheetVariables, jwtToken);
+                }
+                else if (choice.Trim().Equals(updateCombinedEpisodesChoice))
+                {
+                    DisplayMessage("info", "Update data in the Combined Episodes sheet from TVDB. Let's go!");
+                    // A dictionary to hold the columns we need to find.
+                    sheetVariables.Add("RowNum", -1); // Simply the row number we are on, to better help writing back to the Sheet.
+                    sheetVariables.Add("TVDB ID", -1); // The ID of the TV Show to use for gathering episode data.
+                    sheetVariables.Add("Episode 1 Season", -1); // The season number for the first episode.
+                    sheetVariables.Add("Episode 1 No.", -1); // The episode number for the first episode.
+                    sheetVariables.Add("Episode 1 Plot", -1); // The plot for the first episode.
+                    sheetVariables.Add("Lock Plot 1", -1); // Marks if the plot for the first episode is locked (i.e. I manually changed the TVDB plot and don't want it overwritten).
+                    sheetVariables.Add("Episode 2 Season", -1); // The season number for the second episode.
+                    sheetVariables.Add("Episode 2 No.", -1); // The episode number for the second episode.
+                    sheetVariables.Add("Episode 2 Plot", -1); // The plot for the second episode.
+                    sheetVariables.Add("Lock Plot 2", -1); // Marks if the plot for the second episode is locked (i.e. I manually changed the TVDB plot and don't want it overwritten).
+                    sheetVariables.Add("Show Title", -1); // Simply the title to the show.
+
+                    var jwtToken = TvdbApiCall.TvdbApi.GetTvdbJwtKey();
+
+                    titleRowDataRange = COMBINED_EPISODES_TITLE_RANGE;
+                    mainDataRange = COMBINED_EPISODES_DATA_RANGE;
+
+                    IList<IList<Object>> dbData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+
+                    UpdateCombinedEpisodeData(dbData, sheetVariables, jwtToken);
+                }
+                else if (choice.Trim().Equals(writeToCombinedEpisodesChoice))
+                {
+
+                    DisplayMessage("info", "Add video file names to the Combined Episodes sheet. Let's go!");
+                    var directory = AskForDirectory();
+
+                    if (directory != "0")
+                    {
+                        // A dictionary to hold the columns we need to find.
+                        sheetVariables.Add("RowNum", -1); // Simply the row number we are on, to better help writing back to the Sheet.
+                        sheetVariables.Add("Combined Episode Name", -1); // The name of the file when recorded.
+
+                        string[] fileEntries = Directory.GetFiles(directory); // Gather ALL files from the directory.
+
+                        ArrayList videoFiles = GrabMovieFiles(fileEntries); // Now filter out anything that isn't a video file.
+
+                        titleRowDataRange = COMBINED_EPISODES_TITLE_RANGE;
+                        mainDataRange = COMBINED_EPISODES_DATA_RANGE;
+
+                        IList<IList<Object>> sheetData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+
+                        WriteToSheetColumn(videoFiles, sheetData, "Combined Episodes", 1);
+                    }
+                }
 
                 switch (choice.Trim())
                 {
                     case "8": // Count files.
+                        DisplayMessage("info", "Count the files. Let's go!");
                         CountFiles();
                         break;
                     //case "9": // Rename folder name.
@@ -928,9 +1190,14 @@ namespace SheetsQuickstart
                         Console.WriteLine(duration.ToString());
                         //Console.WriteLine("Days: " + duration.TotalDays + ", Hours: " + (duration.TotalHours % 24) + ", Minutes: " + (duration.TotalMinutes % 60) + ", Seconds: " + (duration.TotalSeconds % 60));
                         break;
-                    //default: // Other.
-                    //    DidntUnderstand(choice);
-                    //    break;
+                    case "t24":
+                        DisplayMessage("info", "Testing the countdown for 10 seconds.");
+                        Countdown(10);
+                        DisplayMessage("success", "Test Complete");
+                        break;
+                        //default: // Other.
+                        //    DidntUnderstand(choice);
+                        //    break;
                 } // End switch
 
                 return keepAskingForChoice;
@@ -943,6 +1210,641 @@ namespace SheetsQuickstart
                 return keepAskingForChoice;
             }
         } // End CallSwitch()
+
+        public static void CreateMissingCombinedEpisodeNfoFiles(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, string directory)
+        {
+            try
+            {
+                string[] fileEntries = Directory.GetFiles(directory);
+                var fileCount = fileEntries.Length;
+                string plural = fileCount == 1 ? " file " : " files ";
+                var count = 1;
+                DisplayMessage("warning", "Searching directory for Combined Episodes...");
+                DisplayMessage("info", "Found " + fileCount + " " + plural);
+                foreach (var row in data)
+                {
+                    var tvdbId = row[Convert.ToInt16(sheetVariables["TVDB ID"])].ToString();
+                    var oldName = row[Convert.ToInt16(sheetVariables["Combined Episode Name"])].ToString();
+                    var newName = row[Convert.ToInt16(sheetVariables["New Episode Name"])].ToString();
+                    var nfoBody = row[Convert.ToInt16(sheetVariables["NFO Body"])].ToString();
+
+                    if (!tvdbId.Equals("")) // If the ID is empty then just skip the rest.
+                    {
+                        var sourceFile = Directory.GetFiles(directory, oldName + ".*");
+                        if (sourceFile.Length > 0)
+                        {
+                            var destinationFile = Path.Combine(directory, newName) + Path.GetExtension(sourceFile[0]);
+                            var nfoFile = Path.Combine(directory, newName) + ".nfo";
+                            File.Move(sourceFile[0], destinationFile);
+                            WriteNfoFile(nfoFile, nfoBody);
+                            DisplayMessage("default", "(" + count + " of " + fileCount + ")" + " File renamed and NFO file created for: ", 0);
+                            DisplayMessage("success", newName);
+                            count++;
+                        }
+                    }
+                }
+                DisplayMessage("success", "DONE");
+            }
+            catch (Exception e)
+            {
+                DisplayMessage("error", "An error occured in CreateMissingCombinedEpisodeNfoFiles method:");
+                DisplayMessage("harderror", e.Message);
+                throw;
+            }
+        } // End FixRecordedNames()
+
+        private static void InsertMissingDbData(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, string token)
+        {
+            DisplayMessage("info", "Now inserting info into DB sheet.");
+
+            int intSeriesNamesInsertedCount = 0,
+                intSeasonCountsInsertedCount = 0,
+                intContinuingsInsertedCount = 0,
+                intTvdbIdsInsertedCount = 0;
+
+            string tvdbIdValue = "", // Our current TVDB ID value from the Google Sheet.
+                seriesNameValue = "", // Our current TVDB Series Name from the Google Sheet.
+                seasonCountValue = "", // Our current Season Count value from the Google Sheet.
+                continuingValue = "", // Our current Continuing? value from the Google Sheet.
+                tvdbSlugValue = "", // Our current TVDB Slug value from the Google Sheet.
+                rowNum = "", // Holds the row number we are on.
+                strCellToPutData = ""; // The string of the location to write the data to.
+
+            int tvdbIdColumnNum = 0, // Used to input the returned ID back into the Google Sheet.
+                seriesNameColumnNum = 0, // Used to input the returned rating into the Google Sheet.
+                seasonCountColumnNum = 0, // Used to input the returned rating into the Google Sheet.
+                continuingColumnNum = 0; // Used to input the returned overview into the Google Sheet.
+
+            foreach (var row in data)
+            {
+                try
+                {
+                    rowNum = row[Convert.ToInt16(sheetVariables["RowNum"])].ToString();
+                    tvdbSlugValue = row[Convert.ToInt16(sheetVariables["TVDB Slug"])].ToString();
+                    tvdbIdValue = row[Convert.ToInt16(sheetVariables["TVDB ID"])].ToString();
+                    tvdbIdColumnNum = Convert.ToInt16(sheetVariables["TVDB ID"]);
+                    seriesNameValue = row[Convert.ToInt16(sheetVariables["Series Name"])].ToString();
+                    seriesNameColumnNum = Convert.ToInt16(sheetVariables["Series Name"]);
+                    seasonCountValue = row[Convert.ToInt16(sheetVariables["Season Count"])].ToString();
+                    seasonCountColumnNum = Convert.ToInt16(sheetVariables["Season Count"]);
+                    continuingValue = row[Convert.ToInt16(sheetVariables["Continuing?"])].ToString();
+                    continuingColumnNum = Convert.ToInt16(sheetVariables["Continuing?"]);
+
+                    if (!tvdbSlugValue.Equals("")) // If there is no slug then the row is considered empty and should be skipped.
+                    {
+                        // First check to see if the id is empty and populate it if it is.
+                        if (tvdbIdValue.Equals(""))
+                        {
+                            var response = TvdbApiCall.TvdbApi.GetSeriesIdAsync(ref token, tvdbSlugValue);
+                            tvdbIdValue = response;
+
+                            strCellToPutData = "DB!" + ColumnNumToLetter(tvdbIdColumnNum) + rowNum;
+
+                            WriteSingleCellToSheet(response, strCellToPutData);
+
+                            DisplayMessage("default", "ID saved for ", 0, 10);
+                            DisplayMessage("success", tvdbSlugValue, 1, 5, 10);
+                            intTvdbIdsInsertedCount++;
+                        }
+                        if (seriesNameValue.Equals("") || seasonCountValue.Equals("") || continuingValue.Equals(""))
+                        {
+                            var response = TvdbApiCall.TvdbApi.GetSeriesDetailsAsync(ref token, tvdbIdValue);
+
+                            if (seriesNameValue.Equals(""))
+                            {
+                                seriesNameValue = response.data.seriesName.ToString();
+                                strCellToPutData = "DB!" + ColumnNumToLetter(seriesNameColumnNum) + rowNum;
+
+                                WriteSingleCellToSheet(seriesNameValue, strCellToPutData);
+                                DisplayMessage("default", "Series Name saved for ", 0);
+                                DisplayMessage("success", seriesNameValue);
+                                intSeriesNamesInsertedCount++;
+                            }
+                            if (seasonCountValue.Equals(""))
+                            {
+                                seasonCountValue = response.data.season.ToString();
+                                strCellToPutData = "DB!" + ColumnNumToLetter(seasonCountColumnNum) + rowNum;
+
+                                WriteSingleCellToSheet(seasonCountValue, strCellToPutData);
+                                DisplayMessage("default", "Season Count saved for ", 0);
+                                DisplayMessage("success", seriesNameValue);
+                                intSeasonCountsInsertedCount++;
+                            }
+                            if (continuingValue.Equals(""))
+                            {
+                                if (response.data.status.ToString() == "Continuing")
+                                {
+                                    continuingValue = "Y";
+                                }
+                                else
+                                {
+                                    continuingValue = "N";
+                                }
+
+                                strCellToPutData = "DB!" + ColumnNumToLetter(continuingColumnNum) + rowNum;
+
+                                WriteSingleCellToSheet(continuingValue, strCellToPutData);
+                                DisplayMessage("default", "Continuing saved for ", 0);
+                                DisplayMessage("success", seriesNameValue);
+                                intContinuingsInsertedCount++;
+                            }
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    //Type("Something went wrong while putting in movie data for: " + imdbTitle, 3, 100, 1, "Red");
+                    Type(e.Message, 3, 100, 2, "DarkRed");
+                }
+            }
+            Console.WriteLine();
+            Type("It looks like that's the end of it.", 0, 0, 1);
+            Type("New TVDB IDs inserted: " + intTvdbIdsInsertedCount, 0, 0, 1, "Green");
+            Type("New Series Names inserted: " + intSeriesNamesInsertedCount, 0, 0, 1, "Green");
+            Type("New Season Counts inserted: " + intSeasonCountsInsertedCount, 0, 0, 1, "Green");
+            Type("New Continuings inserted: " + intContinuingsInsertedCount, 0, 0, 1, "Green");
+
+        } // End InsertMissingDbData()
+
+        private static void UpdateDbData(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, string token)
+        {
+            int intSeriesNamesUpdatedCount = 0,
+                intSeasonCountsUpdatedCount = 0,
+                intContinuingsUpdatedCount = 0,
+                intTvdbIdsInsertedCount = 0;
+
+            string tvdbIdValue = "", // Our current TVDB ID value from the Google Sheet.
+                seriesNameValue = "", // Our current TVDB Series Name from the Google Sheet.
+                seasonCountValue = "", // Our current Season Count value from the Google Sheet.
+                continuingValue = "", // Our current Continuing? value from the Google Sheet.
+                tvdbSlugValue = "", // Our current TVDB Slug value from the Google Sheet.
+                rowNum = "", // Holds the row number we are on.
+                strCellToPutData = "", // The string of the location to write the data to.
+                seriesNameCall = "", // The series name pulled from the API call.
+                seasonCountCall = "", // The Season Count pulled from the API call.
+                continuingCall = ""; // The Continuing value pulled from the API call.
+
+            int tvdbIdColumnNum = 0, // Used to input the returned ID back into the Google Sheet.
+                seriesNameColumnNum = 0, // Used to input the returned rating into the Google Sheet.
+                seasonCountColumnNum = 0, // Used to input the returned rating into the Google Sheet.
+                continuingColumnNum = 0; // Used to input the returned overview into the Google Sheet.
+
+            foreach (var row in data)
+            {
+                try
+                {
+                    var showUpdated = false;
+                    rowNum = row[Convert.ToInt16(sheetVariables["RowNum"])].ToString();
+                    tvdbSlugValue = row[Convert.ToInt16(sheetVariables["TVDB Slug"])].ToString();
+                    tvdbIdValue = row[Convert.ToInt16(sheetVariables["TVDB ID"])].ToString();
+                    tvdbIdColumnNum = Convert.ToInt16(sheetVariables["TVDB ID"]);
+                    seriesNameValue = row[Convert.ToInt16(sheetVariables["Series Name"])].ToString();
+                    seriesNameColumnNum = Convert.ToInt16(sheetVariables["Series Name"]);
+                    seasonCountValue = row[Convert.ToInt16(sheetVariables["Season Count"])].ToString();
+                    seasonCountColumnNum = Convert.ToInt16(sheetVariables["Season Count"]);
+                    continuingValue = row[Convert.ToInt16(sheetVariables["Continuing?"])].ToString();
+                    continuingColumnNum = Convert.ToInt16(sheetVariables["Continuing?"]);
+
+                    if (!tvdbSlugValue.Equals("")) // If there is no slug then the row is considered empty and should be skipped.
+                    {
+                        // First check to see if the id is empty and populate it if it is.
+                        if (tvdbIdValue.Equals(""))
+                        {
+                            var idResponse = TvdbApiCall.TvdbApi.GetSeriesIdAsync(ref token, tvdbSlugValue);
+                            tvdbIdValue = idResponse;
+
+                            strCellToPutData = "DB!" + ColumnNumToLetter(tvdbIdColumnNum) + rowNum;
+
+                            WriteSingleCellToSheet(idResponse, strCellToPutData);
+
+                            DisplayMessage("default", "ID saved for ", 0);
+                            DisplayMessage("success", tvdbSlugValue, 1, 0, 600);
+                            intTvdbIdsInsertedCount++;
+                            showUpdated = true;
+                        }
+
+                        var detailsResponse = TvdbApiCall.TvdbApi.GetSeriesDetailsAsync(ref token, tvdbIdValue);
+                        seriesNameCall = detailsResponse.data.seriesName.ToString();
+                        seasonCountCall = detailsResponse.data.season.ToString();
+
+                        if (detailsResponse.data.status.ToString() == "Continuing")
+                        {
+                            continuingCall = "Y";
+                        }
+                        else
+                        {
+                            continuingCall = "N";
+                        }
+
+                        if (seriesNameValue != seriesNameCall)
+                        {
+                            strCellToPutData = "DB!" + ColumnNumToLetter(seriesNameColumnNum) + rowNum;
+
+                            WriteSingleCellToSheet(seriesNameCall, strCellToPutData);
+                            DisplayMessage("default", "Updated Series Name from '", 0);
+                            DisplayMessage("info", seriesNameValue, 0);
+                            DisplayMessage("default", "' to '", 0);
+                            DisplayMessage("success", seriesNameCall, 0);
+                            DisplayMessage("default", "'", 1, 0, 600);
+                            intSeriesNamesUpdatedCount++;
+                            showUpdated = true;
+                        }
+                        if (seasonCountValue != seasonCountCall)
+                        {
+                            strCellToPutData = "DB!" + ColumnNumToLetter(seasonCountColumnNum) + rowNum;
+
+                            WriteSingleCellToSheet(seasonCountCall, strCellToPutData);
+                            DisplayMessage("default", "Updated Season Count from '", 0);
+                            DisplayMessage("info", seasonCountValue, 0);
+                            DisplayMessage("default", "' to '", 0);
+                            DisplayMessage("success", seasonCountCall, 0);
+                            DisplayMessage("default", "' for '", 0);
+                            DisplayMessage("question", seriesNameValue, 0);
+                            DisplayMessage("default", "'", 1, 0, 600);
+                            intSeasonCountsUpdatedCount++;
+                            showUpdated = true;
+                        }
+                        if (continuingValue != continuingCall)
+                        {
+                            strCellToPutData = "DB!" + ColumnNumToLetter(continuingColumnNum) + rowNum;
+
+                            WriteSingleCellToSheet(continuingCall, strCellToPutData);
+                            DisplayMessage("default", "Updated Continuing status from '", 0);
+                            DisplayMessage("info", continuingValue, 0);
+                            DisplayMessage("default", "' to '", 0);
+                            DisplayMessage("success", continuingCall, 0);
+                            DisplayMessage("default", "' for ", 0);
+                            DisplayMessage("question", seriesNameValue, 1, 0, 600);
+                            intContinuingsUpdatedCount++;
+                            showUpdated = true;
+                        }
+
+                        if (!showUpdated)
+                        {
+                            //DisplayMessage("default", "Nothing updated for: ", 0);
+                            //DisplayMessage("info", seriesNameValue, 1, 0, 600);
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    Type(e.Message, 3, 100, 2, "DarkRed");
+                }
+            }
+            Console.WriteLine();
+            Type("It looks like that's the end of it.", 0, 0, 1);
+            Type("New TVDB IDs inserted: " + intTvdbIdsInsertedCount, 0, 0, 1, "Green");
+            Type("New Series Names updated: " + intSeriesNamesUpdatedCount, 0, 0, 1, "Green");
+            Type("New Season Counts updated: " + intSeasonCountsUpdatedCount, 0, 0, 1, "Green");
+            Type("New Continuings updated: " + intContinuingsUpdatedCount, 0, 0, 1, "Green");
+
+        } // End UpdateDbData()
+
+        private static void InsertMissingCombinedEpisodeData(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, string token)
+        {
+            int intPlot1InsertedCount = 0,
+                intPlot2InsertedCount = 0,
+                intPlot1EmptyCount = 0,
+                intPlot2EmptyCount = 0;
+
+            string rowNum = "", // Holds the row number we are on.
+                tvdbIdValue = "", // Our current TVDB ID value from the Google Sheet.
+                strCellToPutData = "", // The string of the location to write the data to.
+                plot1Data = "",
+                plot2Data = "",
+                episode1SeasonNum = "",
+                episode1Num = "",
+                episode2SeasonNum = "",
+                episode2Num = "",
+                showTitle = "";
+
+            int plot1ColumnNum = 0, // Used to input the returned plot into the Google Sheet.
+                plot2ColumnNum = 0; // Used to input the returned plot into the Google Sheet.
+
+            foreach (var row in data)
+            {
+                try
+                {
+                    if (row[Convert.ToInt16(sheetVariables["TVDB ID"])].ToString() != "") // If there is no id then the row is considered empty and should be skipped.
+                    {
+                        rowNum = row[Convert.ToInt16(sheetVariables["RowNum"])].ToString();
+                        tvdbIdValue = row[Convert.ToInt16(sheetVariables["TVDB ID"])].ToString();
+                        plot1Data = row[Convert.ToInt16(sheetVariables["Episode 1 Plot"])].ToString();
+                        plot1ColumnNum = Convert.ToInt16(sheetVariables["Episode 1 Plot"]);
+                        plot2Data = row[Convert.ToInt16(sheetVariables["Episode 2 Plot"])].ToString();
+                        plot2ColumnNum = Convert.ToInt16(sheetVariables["Episode 2 Plot"]);
+                        episode1SeasonNum = row[Convert.ToInt16(sheetVariables["Episode 1 Season"])].ToString();
+                        episode1Num = row[Convert.ToInt16(sheetVariables["Episode 1 No."])].ToString();
+                        episode2SeasonNum = row[Convert.ToInt16(sheetVariables["Episode 2 Season"])].ToString();
+                        episode2Num = row[Convert.ToInt16(sheetVariables["Episode 2 No."])].ToString();
+                        showTitle = row[Convert.ToInt16(sheetVariables["Show Title"])].ToString();
+
+                        if (plot1Data.Equals(""))
+                        {
+                            var response = TvdbApiCall.TvdbApi.GetTvEpisodeDetails(ref token, tvdbIdValue, episode1SeasonNum, episode1Num);
+
+                            plot1Data = response.data[0].overview.ToString();
+
+                            if (plot1Data.Equals(""))
+                            {
+                                DisplayMessage("default", "No plot available for ", 0);
+                                DisplayMessage("warning", showTitle + " - S" + episode1SeasonNum + "E" + episode1Num);
+
+                                intPlot1EmptyCount++;
+                            }
+                            else
+                            {
+                                strCellToPutData = "Combined Episodes!" + ColumnNumToLetter(plot1ColumnNum) + rowNum;
+
+                                WriteSingleCellToSheet(plot1Data, strCellToPutData);
+                                DisplayMessage("default", "Plot saved for ", 0);
+                                DisplayMessage("success", showTitle + " - S" + episode1SeasonNum + "E" + episode1Num + " - at " + strCellToPutData);
+
+                                intPlot1InsertedCount++;
+                            }
+                        }
+                        if (plot2Data.Equals(""))
+                        {
+                            var response = TvdbApiCall.TvdbApi.GetTvEpisodeDetails(ref token, tvdbIdValue, episode2SeasonNum, episode2Num);
+
+                            plot2Data = response.data[0].overview.ToString();
+
+                            if (plot2Data.Equals(""))
+                            {
+                                DisplayMessage("default", "No plot available for ", 0);
+                                DisplayMessage("warning", showTitle + " - S" + episode2SeasonNum + "E" + episode2Num);
+
+                                intPlot2EmptyCount++;
+                            }
+                            else
+                            {
+                                strCellToPutData = "Combined Episodes!" + ColumnNumToLetter(plot2ColumnNum) + rowNum;
+
+                                WriteSingleCellToSheet(plot2Data, strCellToPutData);
+                                DisplayMessage("default", "Plot saved for ", 0);
+                                DisplayMessage("success", showTitle + " - S" + episode2SeasonNum + "E" + episode2Num + " - at " + strCellToPutData);
+
+                                intPlot2InsertedCount++;
+                            }
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    Type(e.Message, 3, 100, 2, "DarkRed");
+                }
+            }
+            Console.WriteLine();
+            Type("It looks like that's the end of it.", 0, 0, 1);
+            Type("New Plots inserted for episode one: " + intPlot1InsertedCount, 0, 0, 1, "Green");
+            Type("New Plots inserted for episode two: " + intPlot2InsertedCount, 0, 0, 1, "Green");
+            Type("Plots skipped due to no plot for episode one: " + intPlot1EmptyCount, 0, 0, 1, "Yellow");
+            Type("Plots skipped due to no plot for episode two: " + intPlot2EmptyCount, 0, 0, 1, "Yellow");
+
+        } // End InsertMissingCombinedEpisodeData()
+        
+        private static void InsertMissingEpisodeData(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, string token)
+        {
+            int intNamesInsertedCount = 0,
+                intPlotsInsertedCount = 0,
+                intPlotEmptyCount = 0;
+
+            string rowNum = "", // Holds the row number we are on.
+                tvdbIdValue = "", // Our current TVDB ID value from the Google Sheet.
+                strCellToPutData = "", // The string of the location to write the data to.
+                plotData = "",
+                episodeSeasonNum = "",
+                episodeNum = "",
+                episodeName = "",
+                showName = "";
+
+            int episodeNameColumnNum = 0, // Used to input the returned name into the Google Sheet.
+                plotColumnNum = 0; // Used to input the returned plot into the Google Sheet.
+            foreach (var row in data)
+            {
+                try
+                {
+                    if (row[Convert.ToInt16(sheetVariables["TVDB ID"])].ToString() != "") // If there is no id then the row is considered empty and should be skipped.
+                    {
+                        rowNum = row[Convert.ToInt16(sheetVariables["RowNum"])].ToString();
+                        tvdbIdValue = row[Convert.ToInt16(sheetVariables["TVDB ID"])].ToString();
+                        plotData = row[Convert.ToInt16(sheetVariables["Plot"])].ToString();
+                        plotColumnNum = Convert.ToInt16(sheetVariables["Plot"]);
+                        episodeName = row[Convert.ToInt16(sheetVariables["Episode Name"])].ToString();
+                        episodeNameColumnNum = Convert.ToInt16(sheetVariables["Episode Name"]);
+                        episodeNum = row[Convert.ToInt16(sheetVariables["Episode #"])].ToString();
+                        episodeSeasonNum = row[Convert.ToInt16(sheetVariables["Season #"])].ToString();
+                        showName = row[Convert.ToInt16(sheetVariables["Show"])].ToString();
+
+                        if (episodeName.Equals("") || plotData.Equals(""))
+                        {
+                            var response = TvdbApiCall.TvdbApi.GetTvEpisodeDetails(ref token, tvdbIdValue, episodeSeasonNum, episodeNum);
+
+                            if (response.Content != null)
+                            {
+                                string error = response.Content.ToString();
+
+                                if (error.Contains("No results"))
+                                {
+                                    DisplayMessage("error", "TVDB does not contain data for: ", 0);
+                                    DisplayMessage("default", showName + " - S" + episodeSeasonNum + "E" + episodeNum);
+                                }
+                            } else
+                            {
+                                string plot = response.data[0].overview.ToString(),
+                                    name = response.data[0].episodeName.ToString();
+
+                                if (episodeName.Equals(""))
+                                {
+                                    strCellToPutData = "Episodes!" + ColumnNumToLetter(episodeNameColumnNum) + rowNum;
+
+                                    WriteSingleCellToSheet(name, strCellToPutData);
+                                    DisplayMessage("success", "Name saved for: ", 0);
+                                    DisplayMessage("default", showName + " - S" + episodeSeasonNum + "E" + episodeNum + " - " + name);
+                                    intNamesInsertedCount++;
+                                }
+
+                                if (plotData.Equals(""))
+                                {
+                                    if (!plot.Equals(""))
+                                    {
+                                        strCellToPutData = "Episodes!" + ColumnNumToLetter(plotColumnNum) + rowNum;
+
+                                        WriteSingleCellToSheet(plot, strCellToPutData);
+                                        DisplayMessage("success", "Plot saved for: ", 0);
+                                        DisplayMessage("default", showName + " - S" + episodeSeasonNum + "E" + episodeNum + " - " + name);
+                                        intPlotsInsertedCount++;
+                                    }
+                                    else
+                                    {
+                                        DisplayMessage("warning", "No plot available for: ", 0);
+                                        DisplayMessage("default", showName + " - S" + episodeSeasonNum + "E" + episodeNum + " - " + name);
+
+                                        intPlotEmptyCount++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    Type(e.Message, 3, 100, 2, "DarkRed");
+                }
+            }
+            Console.WriteLine();
+            Type("It looks like that's the end of it.", 0, 0, 1);
+            DisplayMessage("success", "New Names inserted: ", 0);
+            DisplayMessage("default", intNamesInsertedCount.ToString()) ;
+            DisplayMessage("success", "New Plots inserted: ", 0);
+            DisplayMessage("default", intPlotsInsertedCount.ToString());
+            DisplayMessage("warning", "Plots skipped due to no plot for the episode: ", 0);
+            DisplayMessage("default", intPlotEmptyCount.ToString());
+
+        } // End InsertMissingEpisodeData()
+            
+        private static void UpdateCombinedEpisodeData(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, string token)
+        {
+            int intPlot1InsertedCount = 0,
+                intPlot2InsertedCount = 0,
+                intPlot1LockedCount = 0,
+                intPlot2LockedCount = 0,
+                intPlot1EmptyCount = 0,
+                intPlot2EmptyCount = 0;
+
+            string tvdbIdValue = "", // Our current TVDB ID value from the Google Sheet.
+                rowNum = "", // Holds the row number we are on.
+                strCellToPutData = "", // The string of the location to write the data to.
+                plot1Data = "", // The plot for episode 1 in the Google Sheet.
+                plot2Data = "", // The plot for episode 2 in the Google Sheet.
+                plot1Call = "", // The plot for episode 1 from the API call.
+                plot2Call = "", // The plot for episode 2 from the API call.
+                episode1SeasonNum = "",
+                episode1Num = "",
+                episode2SeasonNum = "",
+                episode2Num = "",
+                showTitle = "",
+                lockPLot1 = "",
+                lockPlot2 = "";
+
+            int plot1ColumnNum = 0, // Used to input the returned plot into the Google Sheet.
+                plot2ColumnNum = 0; // Used to input the returned plot into the Google Sheet.
+
+            foreach (var row in data)
+            {
+                try
+                {
+                    rowNum = row[Convert.ToInt16(sheetVariables["RowNum"])].ToString();
+                    tvdbIdValue = row[Convert.ToInt16(sheetVariables["TVDB ID"])].ToString();
+                    plot1Data = row[Convert.ToInt16(sheetVariables["Episode 1 Plot"])].ToString();
+                    plot1ColumnNum = Convert.ToInt16(sheetVariables["Episode 1 Plot"]);
+                    plot2Data = row[Convert.ToInt16(sheetVariables["Episode 2 Plot"])].ToString();
+                    plot2ColumnNum = Convert.ToInt16(sheetVariables["Episode 2 Plot"]);
+                    episode1SeasonNum = row[Convert.ToInt16(sheetVariables["Episode 1 Season"])].ToString();
+                    episode1Num = row[Convert.ToInt16(sheetVariables["Episode 1 No."])].ToString();
+                    episode2SeasonNum = row[Convert.ToInt16(sheetVariables["Episode 2 Season"])].ToString();
+                    episode2Num = row[Convert.ToInt16(sheetVariables["Episode 2 No."])].ToString();
+                    showTitle = row[Convert.ToInt16(sheetVariables["Show Title"])].ToString();
+                    lockPLot1 = row[Convert.ToInt16(sheetVariables["Lock Plot 1"])].ToString();
+                    lockPlot2 = row[Convert.ToInt16(sheetVariables["Lock Plot 2"])].ToString();
+
+                    if (!tvdbIdValue.Equals("")) // If there is no id then the row is considered empty and should be skipped.
+                    {
+                        var episode1Response = TvdbApiCall.TvdbApi.GetTvEpisodeDetails(ref token, tvdbIdValue, episode1SeasonNum, episode1Num);
+                        plot1Call = episode1Response.data[0].overview.ToString();
+
+                        if (plot1Call.Equals(""))
+                        {
+                            DisplayMessage("default", "No plot available for ", 0);
+                            DisplayMessage("warning", showTitle + " - S" + episode1SeasonNum + "E" + episode1Num);
+
+                            intPlot1EmptyCount++;
+                        }
+                        else if (lockPLot1.ToUpper().Equals("X"))
+                        {
+                            DisplayMessage("default", "Plot locked for ", 0);
+                            DisplayMessage("info", showTitle + " - S" + episode1SeasonNum + "E" + episode1Num);
+
+                            intPlot1LockedCount++;
+                        }
+                        else if (plot1Call != plot1Data)
+                        {
+                            strCellToPutData = "Combined Episodes!" + ColumnNumToLetter(plot1ColumnNum) + rowNum;
+
+                            WriteSingleCellToSheet(plot1Call, strCellToPutData);
+                            DisplayMessage("default", "Plot updated for ", 0);
+                            DisplayMessage("success", showTitle + " - S" + episode1SeasonNum + "E" + episode1Num + " - at " + strCellToPutData);
+
+                            intPlot1InsertedCount++;
+                        }
+
+                        var episode2Response = TvdbApiCall.TvdbApi.GetTvEpisodeDetails(ref token, tvdbIdValue, episode2SeasonNum, episode2Num);
+                        plot2Call = episode2Response.data[0].overview.ToString();
+
+                        if (plot2Call.Equals(""))
+                        {
+                            DisplayMessage("default", "No plot available for ", 0);
+                            DisplayMessage("warning", showTitle + " - S" + episode2SeasonNum + "E" + episode2Num);
+
+                            intPlot2EmptyCount++;
+                        }
+                        else if (lockPlot2.ToUpper().Equals("X"))
+                        {
+                            DisplayMessage("default", "Plot locked for ", 0);
+                            DisplayMessage("info", showTitle + " - S" + episode2SeasonNum + "E" + episode2Num);
+
+                            intPlot2LockedCount++;
+                        }
+                        else if (plot2Call != plot2Data)
+                        {
+                            strCellToPutData = "Combined Episodes!" + ColumnNumToLetter(plot2ColumnNum) + rowNum;
+
+                            WriteSingleCellToSheet(plot2Call, strCellToPutData);
+                            DisplayMessage("default", "Plot saved for ", 0);
+                            DisplayMessage("success", showTitle + " - S" + episode2SeasonNum + "E" + episode2Num + " - at " + strCellToPutData);
+
+                            intPlot2InsertedCount++;
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    Type(e.Message, 3, 100, 2, "DarkRed");
+                }
+            }
+            Console.WriteLine();
+            Type("It looks like that's the end of it.", 0, 0, 1);
+            Type("New Plots inserted for episode one: " + intPlot1InsertedCount, 0, 0, 1, "Green");
+            Type("New Plots inserted for episode two: " + intPlot2InsertedCount, 0, 0, 1, "Green");
+            Type("Plots skipped due to the plot being locked for episode one: " + intPlot1LockedCount, 0, 0, 1, "Blue");
+            Type("Plots skipped due to the plot being locked for episode two: " + intPlot2LockedCount, 0, 0, 1, "Blue");
+            Type("Plots skipped due to no plot for episode one: " + intPlot1EmptyCount, 0, 0, 1, "Yellow");
+            Type("Plots skipped due to no plot for episode two: " + intPlot2EmptyCount, 0, 0, 1, "Yellow");
+
+        } // End UpdateCombinedEpisodeData()
+
+        private static void WriteToSheetColumn(ArrayList videoFilesList, IList<IList<Object>> sheetData, string sheetName, int columnNum)
+        {
+            var i = 0;
+            DisplayMessage("info", "Adding " + videoFilesList.Count + " names to sheet '" + sheetName + "'");
+            foreach (var row in sheetData)
+            {
+                string intRowNum =  row[0].ToString(),
+                    columnToWriteTo = row[columnNum].ToString();
+
+                if (columnToWriteTo.Equals("") && i < videoFilesList.Count)
+                {
+                    string fileName = Path.GetFileNameWithoutExtension(videoFilesList[i].ToString());
+                    string strCellToPutData = sheetName + "!" + ColumnNumToLetter(columnNum) + int.Parse(intRowNum);
+                    WriteSingleCellToSheet(fileName, strCellToPutData);
+                    i++;
+                    DisplayMessage("default", i + " of " + videoFilesList.Count, 0);
+                    DisplayMessage("success", " - " + fileName, 0);
+                    DisplayMessage("default", " - saved to row ", 0);
+                    DisplayMessage("info", intRowNum);
+                }
+            }
+        }
 
         private static void CreateFoldersAndMoveFiles(string directory)
         {
@@ -1020,6 +1922,8 @@ namespace SheetsQuickstart
         private static void ResetGlobals()
         {
             runningTotalConversionTime = new TimeSpan();
+            runningDifference = 0;
+            runningFileSize = 0;
         }
 
         private static ArrayList GrabMovieFiles(string[] files)
@@ -1045,8 +1949,52 @@ namespace SheetsQuickstart
                 Type(e.Message, 0, 0, 1, "DarkRed");
                 throw;
             }
-            
+
+        } // End GrabMovieFiles()
+
+        public static ArrayList AskForFilesToCopy()
+        {
+            ArrayList videoFiles = new ArrayList();
+
+            try
+            {
+                do
+                {
+                    DisplayMessage("question", "Give me a file you'd like to copy- (Type 0 when done)");
+
+                    var file = RemoveCharFromString(Console.ReadLine(), '"');
+
+                    if (file != "0")
+                    {
+                        videoFiles.Add(file);
+                    }
+                    else
+                    {
+                        return videoFiles;
+                    }
+                } while (true);
+                
+            }
+            catch (Exception e)
+            {
+                DisplayMessage("error", "An error occured while adding your file to my list |");
+                DisplayMessage("harderror", e.Message);
+                throw;
+            }
         }
+
+        public static string RemoveCharFromString(string myString, char c)
+        {
+            string newString = "";
+            for (int i = 0; i < myString.Length; i++)
+            {
+                if (myString[i] != c)
+                {
+                    newString += myString[i];
+                }
+            }
+            return newString;
+        } // End RemoveCharFromString()
 
         private static long SizeOfFiles(ArrayList files)
         {
@@ -1120,7 +2068,7 @@ namespace SheetsQuickstart
             Type("We didn't find a column that we were looking for...", 1, 100, 1, "Red");
             foreach (KeyValuePair<string, int> variable in NotFoundColumns)
             {
-                Type("Missing Column: " + variable.Key.ToString(), 1, 100, 1, "DarkRed");
+                Type("Missing Column: '" + variable.Key.ToString() + "'", 1, 100, 1, "DarkRed");
             }
             Type("It's likely that the column we are looking for has changed names.", 1, 100, 2, "Red");
             Type("Press ENTER to exit the program.", 1, 100, 1, "DarkRed");
@@ -1160,7 +2108,6 @@ namespace SheetsQuickstart
                         {
                             do
                             {
-                                Thread.Sleep(250);
                                 tmdbResponse = TmdbApi.ListsCheckItemStatus(tmdbIdValue);
 
                                 if (tmdbResponse.item_present != null)
@@ -1179,7 +2126,6 @@ namespace SheetsQuickstart
                                 }
                                 else
                                 {
-                                    Thread.Sleep(5000);
                                     responseIsBroken = true;
                                 }
                             } while (responseIsBroken);
@@ -1351,7 +2297,6 @@ namespace SheetsQuickstart
                             {
                                 do
                                 {
-                                    Thread.Sleep(250);
                                     tmdbResponse = TmdbApi.MoviesGetDetails(ImdbId);
 
                                     if (tmdbResponse.id != null)
@@ -1397,7 +2342,6 @@ namespace SheetsQuickstart
                         {
                             do
                             {
-                                Thread.Sleep(250);
                                 tmdbResponse = TmdbApi.MoviesGetDetails(ImdbId);
 
                                 if (tmdbResponse.id != null)
@@ -1550,9 +2494,10 @@ namespace SheetsQuickstart
                 //Type(" to ", 0, 0, 0);
                 //Type(destination, 0, 0, 1, "Green");
             }
-            catch (Exception exp)
+            catch (Exception e)
             {
-                Console.WriteLine(exp.Message);
+                DisplayMessage("error", "An error occured while trying to copy the file. | ");
+                DisplayMessage("harderror", e.Message);
                 throw;
             }
         } // End MoveDirectory()
@@ -1687,7 +2632,7 @@ namespace SheetsQuickstart
         /// <summary>
         /// Steps through the given data and determines which types of NFO Files to write then sends them to be written.
         /// </summary>
-        /// <param name="data">The movie data to be stepped through</param>
+        /// <param name="data">The movie data to be stepped through.</param>
         /// <param name="sheetVariables">The dictionary that holds the column data.</param>
         /// <param name="type">The type of NFO file to write: 1 = ALL movies, 2 = Only selected movies, 3 = Only missing NFO Files.</param>
         /// <param name="isYouTubeFile">For the YouTube filenames we need to trim the title so we don't run into the character limit issue.</param>
@@ -1697,8 +2642,6 @@ namespace SheetsQuickstart
 
             foreach (var row in data)
             {
-                Console.WriteLine("CleanTitle: " + row[Convert.ToInt16(sheetVariables[CLEAN_TITLE])].ToString());
-                Console.WriteLine("row.Count: " + row.Count);
                 if (row.Count > 20)
                 {
                     var directoryFound = false;
@@ -1739,19 +2682,39 @@ namespace SheetsQuickstart
 
                             if (hardDriveLetter != "")
                             {
-                                // Now that we found the hard drive letter let's create the full path variable to check for the directory.
+                                // Now that we found the hard drive letter let's create the full path variable to create the directory.
                                 var pathWithDriveLetter = hardDriveLetter + movieDirectory;
-                                if (Directory.Exists(pathWithDriveLetter))
-                                {
-                                    directoryFound = true;
-                                    string fileLocation = pathWithDriveLetter + "\\" + cleanTitle + ".nfo";
+                                Directory.CreateDirectory(pathWithDriveLetter);
 
-                                    if (type == 1) // All movies, overwrite old NFO files AND put in new ones, but only if the folder exists (I don't want folders with only NFO files sitting in them).
+                                directoryFound = true;
+                                string fileLocation = pathWithDriveLetter + "\\" + cleanTitle + ".nfo";
+
+                                if (type == 1) // All movies, overwrite old NFO files AND put in new ones, but only if the folder exists (I don't want folders with only NFO files sitting in them).
+                                {
+
+                                    if (File.Exists(fileLocation))
                                     {
+                                        File.Delete(fileLocation);
+                                        nfoFileOverwrittenCount++;
+                                        Type("NFO overwritten at: " + fileLocation, 0, 0, 1, "Blue");
+
+                                    }
+                                    else
+                                    {
+                                        nfoFileCreatedCount++;
+                                        Type("NFO created at: " + fileLocation, 0, 0, 1, "Green");
+                                    }
+                                    WriteNfoFile(fileLocation, nfoBody);
+
+                                }
+                                else if (type == 2) // Only selected movies marked with an x.
+                                {
+                                    if (row.Count > quickCreateInt && quickCreate.ToUpper() == "X")
+                                    {
+                                        WriteNfoFile(fileLocation, nfoBody);
 
                                         if (File.Exists(fileLocation))
                                         {
-                                            File.Delete(fileLocation);
                                             nfoFileOverwrittenCount++;
                                             Type("NFO overwritten at: " + fileLocation, 0, 0, 1, "Blue");
 
@@ -1761,38 +2724,17 @@ namespace SheetsQuickstart
                                             nfoFileCreatedCount++;
                                             Type("NFO created at: " + fileLocation, 0, 0, 1, "Green");
                                         }
+
+                                    }
+
+                                }
+                                else if (type == 3) // Only the movies that are missing NFO files.
+                                {
+                                    if (!File.Exists(fileLocation))
+                                    {
                                         WriteNfoFile(fileLocation, nfoBody);
-
-                                    }
-                                    else if (type == 2) // Only selected movies marked with an x.
-                                    {
-                                        if (row.Count > quickCreateInt && quickCreate.ToUpper() == "X")
-                                        {
-                                            WriteNfoFile(fileLocation, nfoBody);
-
-                                            if (File.Exists(fileLocation))
-                                            {
-                                                nfoFileOverwrittenCount++;
-                                                Type("NFO overwritten at: " + fileLocation, 0, 0, 1, "Blue");
-
-                                            }
-                                            else
-                                            {
-                                                nfoFileCreatedCount++;
-                                                Type("NFO created at: " + fileLocation, 0, 0, 1, "Green");
-                                            }
-
-                                        }
-
-                                    }
-                                    else if (type == 3) // Only the movies that are missing NFO files.
-                                    {
-                                        if (!File.Exists(fileLocation))
-                                        {
-                                            WriteNfoFile(fileLocation, nfoBody);
-                                            nfoFileCreatedCount++;
-                                            Type("NFO created at: " + fileLocation, 0, 0, 1, "Green");
-                                        }
+                                        nfoFileCreatedCount++;
+                                        Type("NFO created at: " + fileLocation, 0, 0, 1, "Green");
                                     }
                                 }
 
@@ -1966,9 +2908,9 @@ namespace SheetsQuickstart
         //    }
         //} // End CheckForMovie()
 
-        protected static IList<IList<Object>> CallGetData(Dictionary<string, int> sheetVariables, string titleRowDataRange, string mainDataRange)
+        public static IList<IList<Object>> CallGetData(Dictionary<string, int> sheetVariables, string titleRowDataRange, string mainDataRange)
         {
-            Type("Gathering movie data... ", 10, 0, 0, "Yellow");
+            Type("Gathering sheet data... ", 10, 0, 0, "Yellow");
             // Get the title row data.
             IList<IList<Object>> titleData = GetData(titleRowDataRange);
             IList<IList<Object>> movieData = new List<IList<object>> { };
@@ -2003,7 +2945,7 @@ namespace SheetsQuickstart
         /// </summary>
         /// <param name="sheetDataRange">The range in the sheet to pull data from.</param>
         /// <returns>The data from the selected range.</returns>
-        protected static IList<IList<Object>> GetData(string sheetDataRange)
+        public static IList<IList<Object>> GetData(string sheetDataRange)
         {
             try
             {
@@ -2063,18 +3005,17 @@ namespace SheetsQuickstart
         /// </summary>
         /// <param name="data">The movie data to run through.</param>
         /// <param name="sheetVariables">The column names to look at.</param>
-        protected static void InputMovieData(IList<IList<Object>> data, Dictionary<string, int> sheetVariables)
+        protected static void InputMovieData(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, Boolean overwiteData = false)
         {
             int intTmdbIdDoneCount = 0,
                 intTmdbRatingDoneCount = 0,
                 intPlotDoneCount = 0,
                 intTmdbIdNotFoundCount = 0,
                 intTmdbRatingNotFoundCount = 0,
-                intPlotNotFoundCount = 0,
-                intRowNum = 3;
+                intPlotNotFoundCount = 0;
 
-            string text = "", // Holds a running string of what the method does to print out in case of an error (Possibly Deprecating)
-                tmdbIdValue = "", // Our current TMDB ID value from the Google Sheet.
+            string tmdbIdValue = "", // Our current TMDB ID value from the Google Sheet.
+                rowNum = "", // Holds the row number we are on.
                 tmdbRatingValue = "", // Our current TMDB Rating value from the Google Sheet.
                 plotValue = "", // Our current Plot value from the Google Sheet.
                 imdbId = "", // The IMDB ID from the Google Sheet to call the TMDB API with.
@@ -2086,7 +3027,8 @@ namespace SheetsQuickstart
 
             int tmdbIdColumnNum = 0, // Used to input the returned ID back into the Google Sheet.
                 tmdbRatingColumnNum = 0, // Used to input the returned rating into the Google Sheet.
-                plotColumnNum = 0; // Used to input the returned overview into the Google Sheet.
+                plotColumnNum = 0, // Used to input the returned overview into the Google Sheet.
+                quickCreateColumnNum = 0; // Used to mark the movies that Plot gets updated.
 
             dynamic tmdbResponse; // The API call response.
 
@@ -2096,7 +3038,8 @@ namespace SheetsQuickstart
                 {
                     try
                     {
-                        bool responseIsBroken = true;
+                        bool MovieFoundAtTmdb = true;
+                        rowNum = row[Convert.ToInt16(sheetVariables["RowNum"])].ToString();
                         tmdbIdValue = row[Convert.ToInt16(sheetVariables["TMDB ID"])].ToString();
                         tmdbIdColumnNum = Convert.ToInt16(sheetVariables["TMDB ID"]);
                         tmdbRatingValue = row[Convert.ToInt16(sheetVariables["TMDB Rating"])].ToString();
@@ -2105,55 +3048,60 @@ namespace SheetsQuickstart
                         plotColumnNum = Convert.ToInt16(sheetVariables["Plot"]);
                         imdbId = row[Convert.ToInt16(sheetVariables["IMDB ID"])].ToString();
                         imdbTitle = row[Convert.ToInt16(sheetVariables["IMDB Title"])].ToString();
+                        if (sheetVariables.ContainsKey("Quick Create")) quickCreateColumnNum = Convert.ToInt16(sheetVariables["Quick Create"]);
 
-                        if (tmdbIdValue.Equals("") || tmdbRatingValue.Equals("") || plotValue.Equals("")) // If the ID, rating, or Plot are missing.
+                        if (tmdbIdValue.Equals("") || tmdbRatingValue.Equals("") || plotValue.Equals("") || overwiteData)
                         {
-                            do
+                            tmdbResponse = TmdbApi.MoviesGetDetails(imdbId);
+                            try
                             {
-                                Thread.Sleep(250);
-                                tmdbResponse = TmdbApi.MoviesGetDetails(imdbId);
-
-                                if (tmdbResponse.id != null)
+                                if (tmdbResponse.movie_results[0].id.Value.ToString() != "")
                                 {
-                                    tmdbId = tmdbResponse.id.ToString();
-                                    tmdbRating = tmdbResponse.vote_average.ToString();
-                                    tmdbPlot = tmdbResponse.overview.ToString();
+                                    tmdbId = tmdbResponse.movie_results[0].id.Value.ToString();
+                                    tmdbRating = tmdbResponse.movie_results[0].vote_average.ToString();
+                                    tmdbPlot = tmdbResponse.movie_results[0].overview.ToString();
 
-                                    responseIsBroken = false;
-                                }
-                                else if (tmdbResponse.status_message != null)
-                                {
-                                    // There was an error while grabbing the movie data, display the error.
-                                    Type(imdbTitle + " | " + tmdbResponse.status_message, 0, 0, 1, "Red");
-
-                                    // Reset the variables.
-                                    tmdbId = "";
-                                    tmdbRating = "";
-                                    tmdbPlot = "";
-                                    responseIsBroken = false;
+                                    if (!tmdbRating.Contains(".")) tmdbRating += ".0";
                                 }
                                 else
                                 {
-                                    Thread.Sleep(5000);
-                                }
-                            } while (responseIsBroken);
+                                    DisplayMessage("error", "No record adfasdfa found at TMDB for: ", 0);
+                                    DisplayMessage("warning", imdbTitle);
 
-                            if (tmdbIdValue.Equals("")) // If the TMDB ID is missing then let's input it.
+                                    MovieFoundAtTmdb = false;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                DisplayMessage("error", "No record found at TMDB for: ", 0);
+                                DisplayMessage("warning", imdbTitle);
+
+                                MovieFoundAtTmdb = false;
+                            }
+
+                            if (MovieFoundAtTmdb && (tmdbIdValue.Equals("") || (overwiteData && !tmdbIdValue.Equals(tmdbId))))
                             {
                                 if (tmdbId != "")
                                 {
-                                    strCellToPutData = "Movies!" + ColumnNumToLetter(tmdbIdColumnNum) + intRowNum;
+                                    strCellToPutData = "Movies!" + ColumnNumToLetter(tmdbIdColumnNum) + rowNum;
 
                                     if (WriteSingleCellToSheet(tmdbId, strCellToPutData))
                                     {
-                                        Type("TMDB ID saved for: " + imdbTitle, 0, 0, 1, "Green");
+                                        if (tmdbIdValue.Equals("")) Type("TMDB ID saved for: " + imdbTitle, 0, 0, 1, "Green");
+                                        else
+                                        {
+                                            DisplayMessage("success", "TMDB ID updated from '", 0);
+                                            DisplayMessage("info", tmdbIdValue, 0);
+                                            DisplayMessage("success", "' to '", 0);
+                                            DisplayMessage("info", tmdbId, 0);
+                                            DisplayMessage("success", "' for: ", 0);
+                                            DisplayMessage("warning", imdbTitle);
+                                        }
                                         intTmdbIdDoneCount++;
-                                        text += imdbTitle + " Successfully wrote ID, ";
                                     }
                                     else
                                     {
-                                        Type("An error occured writing the ID!", 0, 0, 1, "Red");
-                                        text += imdbTitle + " Failed to write ID, ";
+                                        Type("An error occured writing the ID for: " + imdbTitle, 0, 0, 1, "Red");
                                     }
                                 }
                                 else
@@ -2162,22 +3110,29 @@ namespace SheetsQuickstart
                                 }
                             }
 
-                            if (tmdbRatingValue.Equals("")) // If the TMDB Rating is missing then let's input it.
+                            if (MovieFoundAtTmdb && (tmdbRatingValue.Equals("") || (overwiteData && !tmdbRatingValue.Equals(tmdbRating))))
                             {
                                 if (tmdbRating != "")
                                 {
-                                    strCellToPutData = "Movies!" + ColumnNumToLetter(tmdbRatingColumnNum) + intRowNum;
+                                    strCellToPutData = "Movies!" + ColumnNumToLetter(tmdbRatingColumnNum) + rowNum;
 
                                     if (WriteSingleCellToSheet(tmdbRating, strCellToPutData))
                                     {
-                                        Type("TMDB Rating saved for: " + imdbTitle, 0, 0, 1, "Green");
+                                        if (tmdbRatingValue.Equals("")) Type("TMDB Rating saved for: " + imdbTitle, 0, 0, 1, "Green");
+                                        else
+                                        {
+                                            DisplayMessage("success", "TMDB Rating updated from '", 0);
+                                            DisplayMessage("info", tmdbRatingValue, 0);
+                                            DisplayMessage("success", "' to '", 0);
+                                            DisplayMessage("info", tmdbRating, 0);
+                                            DisplayMessage("success", "' for: ", 0);
+                                            DisplayMessage("warning", imdbTitle);
+                                        }
                                         intTmdbRatingDoneCount++;
-                                        text += imdbTitle + " Successfully wrote Rating, ";
                                     }
                                     else
                                     {
-                                        Type("An error occured writing the Rating!", 0, 0, 1, "Red");
-                                        text += imdbTitle + " Failed to write Rating, ";
+                                        Type("An error occured writing the Rating for: " + imdbTitle, 0, 0, 1, "Red");
                                     }
                                 }
                                 else
@@ -2186,22 +3141,27 @@ namespace SheetsQuickstart
                                 }
                             }
 
-                            if (plotValue.Equals("")) // If the Plot is missing then let's input it.
+                            if (MovieFoundAtTmdb && (plotValue.Equals("") || (overwiteData && !plotValue.Equals(tmdbPlot))))
                             {
                                 if (tmdbPlot != "")
                                 {
-                                    strCellToPutData = "Movies!" + ColumnNumToLetter(plotColumnNum) + intRowNum;
+                                    strCellToPutData = "Movies!" + ColumnNumToLetter(plotColumnNum) + rowNum;
 
                                     if (WriteSingleCellToSheet(tmdbPlot, strCellToPutData))
                                     {
-                                        Type("Plot saved for: " + imdbTitle, 0, 0, 1, "Green");
+                                        if (plotValue.Equals("")) Type("Plot saved for: " + imdbTitle, 0, 0, 1, "Green");
+                                        else
+                                        {
+                                            DisplayMessage("success", "Plot updated for: ", 0);
+                                            DisplayMessage("warning", imdbTitle);
+                                            strCellToPutData = "Movies!" + ColumnNumToLetter(quickCreateColumnNum) + rowNum;
+                                            WriteSingleCellToSheet("X", strCellToPutData);
+                                        }
                                         intPlotDoneCount++;
-                                        text += imdbTitle + " Successfully wrote Plot, ";
                                     }
                                     else
                                     {
-                                        Type("An error occured writing the Plot!", 0, 0, 1, "Red");
-                                        text += imdbTitle + " Failed to write Plot, ";
+                                        Type("An error occured writing the Plot for: " + imdbTitle, 0, 0, 1, "Red");
                                     }
                                 }
                                 else
@@ -2211,8 +3171,6 @@ namespace SheetsQuickstart
                             }
 
                         }
-
-                        intRowNum++;
 
                     }
                     catch (Exception e)
@@ -2234,9 +3192,18 @@ namespace SheetsQuickstart
 
         } // End InputMovieData()
 
+        public static void Countdown(int time)
+        {
+            do
+            {
+                DisplayMessage("data", time.ToString(), 0, 0, 1000);
+                ClearCurrentConsoleLine();
+                time--;
+            } while (time > 0);
+        }
+
         /// <summary>
-        /// This is a test method for writing to the same console line.
-        /// Not using it yet, if at all.
+        /// Clears the current console line text.
         /// </summary>
         protected static void ClearCurrentConsoleLine()
         {
@@ -2257,7 +3224,7 @@ namespace SheetsQuickstart
             
             foreach (var row in data)
             {
-                if (row.Count > 20) // If it's an empty row then it should have much less than this.
+                if (row[1].ToString() != "") // If it's an empty row then this cell should be empty.
                 {
                     intTotalMoviesCount++;
                     string i = "",
@@ -2265,11 +3232,20 @@ namespace SheetsQuickstart
                             title = "",
                             additionalCommands = "",
                             chapter = "",
-                            directoryLocation = "";
+                            directoryLocation = "",
+                            showTitle = "",
+                            SeasonNum = "",
+                            convertPath = "";
                     try
                     {
                         i = row[Convert.ToInt16(sheetVariables["ISO Input"])].ToString();
                         o = row[Convert.ToInt16(sheetVariables["Directory"])].ToString() + "\\" + row[Convert.ToInt16(sheetVariables["Clean Title"])].ToString() + ".mp4";
+                        showTitle = row[Convert.ToInt16(sheetVariables["Show"])].ToString();
+                        if (row[Convert.ToInt16(sheetVariables["Override Show"])].ToString() != "") showTitle = row[Convert.ToInt16(sheetVariables["Show"])].ToString();
+                        SeasonNum = row[Convert.ToInt16(sheetVariables["Season #"])].ToString();
+                        string pathRoot = Path.GetPathRoot(i.ToString()),
+                            cleanTitle = row[Convert.ToInt16(sheetVariables["Clean Title"])].ToString();
+                        convertPath = pathRoot + "These are finished running through HandBrake\\" + showTitle + "\\Season " + SeasonNum + "\\" + cleanTitle + ".mp4";
                         title = row[Convert.ToInt16(sheetVariables["ISO Title #"])].ToString();
                         additionalCommands = " " + row[Convert.ToInt16(sheetVariables["Additional Commands"])].ToString();
                         chapter = row[Convert.ToInt16(sheetVariables["ISO Ch #"])].ToString();
@@ -2280,22 +3256,29 @@ namespace SheetsQuickstart
                             intImagesCount++;
                             if (File.Exists(o))
                             {
-                                //Type("We found " + i, 0, 0, 1, "green");
-                                //Type("We found " + o, 0, 0, 1, "green");
-                                //Type("We won't have to convert this one.", 0, 0, 1, "green");
+                                DisplayMessage("info", "We found: ", 0);
+                                DisplayMessage("default", cleanTitle);
+                                intAlreadyConvertedFilesCount++;
+                            }
+                            else if (File.Exists(convertPath))
+                            {
+                                DisplayMessage("info", "We found: ", 0);
+                                DisplayMessage("default", cleanTitle);
                                 intAlreadyConvertedFilesCount++;
                             }
                             else
                             {
-                                Type("We found " + i, 0, 0, 1, "green");
-                                Type("We didn't find " + o, 0, 0, 1, "yellow");
+                                DisplayMessage("warning", "We didn't find: ", 0);
+                                DisplayMessage("default", cleanTitle);
 
                                 if (title != "")
                                 {
-                                    Directory.CreateDirectory(directoryLocation);
-                                    string strMyConversionString = "HandBrakeCLI -i \"" + i + "\" -o \"" + o + "\" " + presetChoice + " -t " + title + additionalCommands;
+                                    Directory.CreateDirectory(pathRoot + "These are finished running through HandBrake");
+                                    Directory.CreateDirectory(pathRoot + "These are finished running through HandBrake\\" + showTitle);
+                                    Directory.CreateDirectory(pathRoot + "These are finished running through HandBrake\\" + showTitle + "\\Season " + SeasonNum);
+                                    string strMyConversionString = "HandBrakeCLI -i \"" + i + "\" -o \"" + convertPath + "\" " + presetChoice + " -t " + title + additionalCommands;
 
-                                    Type("We will use title #" + title, 0, 0, 1, "blue");
+                                    //Type("We will use title #" + title, 0, 0, 1, "blue");
 
                                     if (chapter != "")
                                     {
@@ -2332,11 +3315,11 @@ namespace SheetsQuickstart
                 }
             } // End foreach
             Type("-----SUMMARY-----", 7, 100, 1);
-            Type(intTotalMoviesCount + " Total Movies.", 7, 100, 1);
-            Type(intImagesCount + " Images Found.", 7, 100, 1);
-            Type(intAlreadyConvertedFilesCount + " Movie Files Found.", 7, 100, 1);
-            Type(intConvertedFilesCount + " Movies Converted.", 7, 100, 1);
-            Type(intNoTitleCount + " Missing Titles to Convert.", 7, 100, 1);
+            Type(intTotalMoviesCount + " total episodes in list to convert.", 7, 100, 1);
+            Type(intImagesCount + " disc images found.", 7, 100, 1);
+            Type(intAlreadyConvertedFilesCount + " episodes already converted and were skipped.", 7, 100, 1);
+            Type(intConvertedFilesCount + " episodes converted.", 7, 100, 1);
+            Type(intNoTitleCount + " missing titles to convert.", 7, 100, 1);
 
             Type("It looks like that's the end of it.", 3, 100, 2, "magenta");
         } // End ConvertVideo()
@@ -2526,6 +3509,11 @@ namespace SheetsQuickstart
                 runningTotalConversionTime += duration;
                 Type("Total duration: ", 0, 0, 0, "Blue");
                 Type(runningTotalConversionTime.ToString(), 0, 0, 1, "Cyan");
+
+                // Add the duration to display the total session running time.
+                sessionDuration += duration;
+                Type("Total session duration: ", 0, 0, 0, "Blue");
+                Type(sessionDuration.ToString(), 0, 0, 1, "Green");
 
                 // If there are more than one file to convert guesstimate the amount of time remaining.
                 if (count > 0)
@@ -2744,12 +3732,13 @@ namespace SheetsQuickstart
             {
                 ClearDirectories();
 
+                var directory = AskForDirectory();
 
-                Type("Enter your directory", 7, 100, 1);
-                var directory = Console.ReadLine();
+                //Type("Enter your directory", 7, 100, 1);
+                //var directory = Console.ReadLine();
                 string[] fileEntries = Directory.GetFiles(directory);
                 string[] subdirectoryEntries = Directory.GetDirectories(directory);
-                Type("The directory: '" + directory + "' contains " + subdirectoryEntries.Length + " sub folders and " + fileEntries.Length + " files.", 0, 100, 1);
+                Type("The chosen directory contains " + subdirectoryEntries.Length + " sub folders and " + fileEntries.Length + " files.", 0, 100, 1);
                 string directoryPlural = "";
                 if (File.Exists(directory))
                 {
@@ -2768,7 +3757,7 @@ namespace SheetsQuickstart
                         directoryPlural = missingNfo.Count() == 1 ? " directory is " : " directories are ";
                         Type(missingNfo.Count().ToString() + directoryPlural + "missing NFO files.", 0, 0, 1, "DarkRed");
                         missingDirectories.Add(missingNfo);
-                        missingDirectoriesList.Add(i, "Missing NFO");
+                        missingDirectoriesList.Add(i, missingNfo.Count().ToString() + " Missing NFO");
                         i++;
                     }
                     if (missingJpg.Count() > 0)
@@ -2776,7 +3765,7 @@ namespace SheetsQuickstart
                         directoryPlural = missingJpg.Count() == 1 ? " directory is " : " directories are ";
                         Type(missingJpg.Count().ToString() + directoryPlural + "missing JPG files.", 0, 0, 1, "DarkYellow");
                         missingDirectories.Add(missingJpg);
-                        missingDirectoriesList.Add(i, "Missing JPG");
+                        missingDirectoriesList.Add(i, missingJpg.Count().ToString() + " Missing JPG");
                         i++;
                     }
                     if (missingMovie.Count() > 0)
@@ -2784,7 +3773,7 @@ namespace SheetsQuickstart
                         directoryPlural = missingMovie.Count() == 1 ? " directory is " : " directories are ";
                         Type(missingMovie.Count().ToString() + directoryPlural + "missing Movie files.", 0, 0, 1, "Blue");
                         missingDirectories.Add(missingMovie);
-                        missingDirectoriesList.Add(i, "Missing Movie");
+                        missingDirectoriesList.Add(i, missingMovie.Count().ToString() + " Missing Movie");
                         i++;
                     }
                     if (missingIso.Count() > 0)
@@ -2792,7 +3781,7 @@ namespace SheetsQuickstart
                         directoryPlural = missingIso.Count() == 1 ? " directory is " : " directories are ";
                         Type(missingIso.Count().ToString() + directoryPlural + "missing ISO files.", 0, 0, 1, "DarkCyan");
                         missingDirectories.Add(missingIso);
-                        missingDirectoriesList.Add(i, "Missing ISO");
+                        missingDirectoriesList.Add(i, missingIso.Count().ToString() + " Missing ISO");
                         i++;
                     }
                     if (partFiles.Count() > 0)
@@ -2800,13 +3789,13 @@ namespace SheetsQuickstart
                         directoryPlural = partFiles.Count() == 1 ? " directory has " : " directories have ";
                         Type(partFiles.Count().ToString() + directoryPlural + "a part of a file.", 0, 0, 1, "DarkCyan");
                         missingDirectories.Add(partFiles);
-                        missingDirectoriesList.Add(i, "Part File");
+                        missingDirectoriesList.Add(i, partFiles.Count().ToString() + " Part File");
                         i++;
                     }
                     if (emptyDirectory.Count() > 0)
                     {
                         directoryPlural = emptyDirectory.Count() == 1 ? " directory was " : " directories were ";
-                        Type(emptyDirectory.Count().ToString() + directoryPlural + "empty and deleted.", 0, 0, 1, "Magenta");
+                        Type(emptyDirectory.Count().ToString() + directoryPlural + "empty.", 0, 0, 1, "Magenta");
                         missingDirectories.Add(emptyDirectory);
                         missingDirectoriesList.Add(i, "Empty Directory");
                         i++;
@@ -2888,14 +3877,14 @@ namespace SheetsQuickstart
             //Type("It looks like that's the end of it.", 0, 0, 1);
         } // End DisplayResults()
 
-        protected static string AskForDirectory()
+        protected static string AskForDirectory(string message = "Enter your directory:")
         {
             bool keepAskingForDirectory = true;
             string directory;
             do
             {
-                Type("Enter your directory: (0 to cancel)", 7, 100, 1);
-                directory = Console.ReadLine();
+                DisplayMessage("question", message + " (0 to cancel)");
+                directory = RemoveCharFromString(Console.ReadLine(), '"');
                 if (directory == "0")
                 {
                     keepAskingForDirectory = false;
@@ -2963,11 +3952,12 @@ namespace SheetsQuickstart
                         DateTime convertedTime = DateTime.Now;
                         foreach (string file in outputFiles)
                         {
-                            AddComment(file, "Converted on: " + convertedTime.ToString("MM/dd/yyyy"));
+                            AddComment(file, "Recorded in HD, re-encoded with black bars.\nConverted on: " + convertedTime.ToString("MM/dd/yyyy"));
                         }
 
                         // Now clear the outputFiles arraylist.
                         outputFiles.Clear();
+
                     } else
                     {
                         // Now that the output file definitely exists we can grab the size of it.
@@ -2978,6 +3968,9 @@ namespace SheetsQuickstart
 
                         Type(fileName + " already exists at destination. --Skipping to next file.", 0, 0, 1, "Yellow");
                     }
+                    // Now delete the input file.
+                    File.Delete(i);
+                    DisplayMessage("info", "Input file deleted.");
 
                     count++;
                     DisplayEndOfCurrentProcessLines();
@@ -3012,8 +4005,15 @@ namespace SheetsQuickstart
 
             // Add the difference to display the total running difference in bytes.
             runningDifference += difference;
+            runningFileSize += iFile;
             Type("Total savings: ", 0, 0, 0, "Blue");
-            Type(FormatSize(runningDifference) + " of " + fileSize + " " + FormatPercentage(runningDifference, fileSizeBytes) + "% saved", 0, 0, 1, "Cyan");
+            Type(FormatSize(runningDifference) + " of " + FormatSize(runningFileSize) + " " + FormatPercentage(runningDifference, runningFileSize) + "% saved", 0, 0, 1, "Cyan");
+
+            // Add the difference to display the total session difference in bytes.
+            runningSessionSavings += difference;
+            runningSessionFileSize += iFile;
+            Type("Session savings: ", 0, 0, 0, "Blue");
+            Type(FormatSize(runningSessionSavings) + " of " + FormatSize(runningSessionFileSize) + " " + FormatPercentage(runningSessionSavings, runningSessionFileSize) + "% saved", 0, 0, 1, "Green");
         }
 
         protected static string FormatPercentage(long oFile, long iFile)
@@ -3038,6 +4038,14 @@ namespace SheetsQuickstart
                         videoFile.Save();
                         Type("Comment added to: ", 0, 0, 0, "Yellow");
                         Type(Path.GetFileName(myFile.ToString()), 0, 0, 1, "Green");
+                    } else
+                    {
+                        var oldComment = videoFile.Tag.Comment;
+                        var newComment = oldComment + "\n" + comment;
+                        videoFile.Tag.Comment = newComment;
+                        videoFile.Save();
+                        DisplayMessage("warning", "Comment Added onto: ", 0);
+                        DisplayMessage("success", Path.GetFileName(myFile.ToString()));
                     }
                 }
 
@@ -3202,7 +4210,14 @@ namespace SheetsQuickstart
 
                     chosenDestination = Console.ReadLine().ToUpper();
 
-                    Console.WriteLine("We will copy to hard drive " + chosenDestination);
+                    if (!HardDriveHasSpace(chosenDestination))
+                    {
+                        DisplayMessage("error", "We won't be able to copy any more movies to this hard drive because available space is below 10%");
+                        break;
+                    } else
+                    {
+                        Console.WriteLine("We will copy to hard drive " + chosenDestination);
+                    }
 
                     Type("What hard drive am I copying from? (Just the hard drive letter)", 0, 0, 1, "Yellow");
 
@@ -3213,7 +4228,7 @@ namespace SheetsQuickstart
                         Console.WriteLine("We will copy from the " + sourceHardDriveLetter + " drive.");
                     } else
                     {
-                        DisplayMessage("error", "I'm sorry the source hard drive can't be the same as the destination.");
+                        DisplayMessage("error", "I'm sorry the source hard drive can't be the same as the destination hard drive.");
                         repeatProcess = true;
                     }
 
@@ -3227,6 +4242,12 @@ namespace SheetsQuickstart
                 {
                     foreach (var row in data)
                     {
+                        if (HardDriveHasSpace(chosenDestination))
+                        {
+                            DisplayMessage("error", "We have stopped copying movies because available hard drive space is below 10%");
+                            break;
+                        }
+
                         if (row.Count > 4) // If it's an empty row then it should have less than this.
                         {
                             var cleanTitle = row[Convert.ToInt16(sheetVariables["Clean Title"])].ToString();
@@ -3344,11 +4365,11 @@ namespace SheetsQuickstart
                                                     
 
                                                 }
-                                                if (!movieFoundAtSource)
-                                                {
-                                                    Type("No movie file was found for " + cleanTitle + ".", 0, 0, 1, "Red");
-                                                    intFileNotFoundCount++;
-                                                }
+                                                //if (!movieFoundAtSource)
+                                                //{
+                                                //    Type("No movie file was found for " + cleanTitle + ".", 0, 0, 1, "Red");
+                                                //    intFileNotFoundCount++;
+                                                //}
                                             }
                                             else
                                             {
@@ -3394,11 +4415,73 @@ namespace SheetsQuickstart
                     Type("Movies skipped: " + intFileSkippedCount, 0, 0, 1, "Yellow");
                     Type("Source movies not found: " + intFileNotFoundCount, 0, 0, 1, "Red");
                     Type("Movies already at destination: " + intFileAlreadyThereCount, 0, 0, 1, "Blue");
+                    DisplayMessage("question", "Remaining Hard Drive Space: " + GetAvailableHardDrivePercent(chosenDestination) + "%");
                 }
 
             } while (repeatProcess);
 
         } // End CopyMovieFiles()
+
+        public static double GetAvailableHardDrivePercent(string hd)
+        {
+            try
+            {
+                DriveInfo di = new DriveInfo(hd);
+
+                if (di.IsReady)
+                {
+                    double freeSpace = di.AvailableFreeSpace;
+                    double totalSpace = di.TotalSize;
+
+                    double availablePercent = Math.Round((freeSpace / totalSpace) * 100, 2);
+
+                    return availablePercent;
+                }
+                else
+                {
+                    DisplayMessage("warning", "Can't check available hard drive space -- Hard drive is not ready");
+                    throw new InvalidOperationException();
+                }
+
+            }
+            catch (IOException e)
+            {
+                DisplayMessage("error", "An error occured while checking the hard drive space | " + e.Message);
+                throw;
+            }
+        } // End GetAvailableHardDrivePercent()
+
+        public static bool HardDriveHasSpace(string hd, int moreSpaceThan = 11)
+        {
+            try
+            {
+                DriveInfo di = new DriveInfo(hd);
+
+                if (di.IsReady)
+                {
+                    double freeSpace = di.AvailableFreeSpace;
+                    double totalSpace = di.TotalSize;
+
+                    double availablePercent = Math.Round((freeSpace / totalSpace) * 100, 2);
+
+                    if (availablePercent > moreSpaceThan)
+                        return true;
+                    else
+                        return false;
+                }
+                else
+                {
+                    DisplayMessage("warning", "Can't check available hard drive space -- Hard drive is not ready");
+                    throw new InvalidOperationException();
+                }
+
+            }
+            catch (IOException e)
+            {
+                DisplayMessage("error", "An error occured while checking the hard drive space | " + e.Message);
+                throw;
+            }
+        } // End GetAvailableHardDrivePercent()
 
         protected static void DeleteMovieFiles(IList<IList<object>> data, Dictionary<string, int> sheetVariables)
         {
@@ -3459,7 +4542,7 @@ namespace SheetsQuickstart
                             try
                             {
                                 // If the first letter of status is an 'x' or is empty, then we don't need to run through this for loop so don't waste the resources.
-                                if (!status.Equals("") && status[0].ToString().ToUpper() != "X" && selected.ToUpper() == "N")
+                                if (!status.Equals("") && status[0].ToString().ToUpper() != "X" && !selected.ToUpper().Equals("Y"))
                                 {
                                     // Since the movie status is valid let's go ahead and check if the movie is already at the destination.
 
@@ -3504,7 +4587,7 @@ namespace SheetsQuickstart
                             }
                             catch (Exception e)
                             {
-                                Type(e.Message, 3, 100, 1, "Red");
+                                DisplayMessage("error", "An error occured deleting the video | " + e.Message);
                                 throw;
                             }
 
@@ -3569,39 +4652,21 @@ namespace SheetsQuickstart
 
                 }
 
-                // If none of these types of files are in here then we probably have an empty ISO folder.
-                if (nfoCount == 0 && jpgCount == 0 && mp4Count == 0 && mkvCount == 0 && m4vCount == 0 && aviCount == 0 && webmCount == 0 && isoCount == 0 && partCount == 0)
+                if (nfoCount == 0)
                 {
-                    missingIso.Add(targetDirectory);
+                    missingNfo.Add(targetDirectory);
                 }
-                // However if isoCount is not equal to 0 then we are in an image folder and I don't want to count missing NFO files and such.
-                else if (isoCount != 0)
+                if (jpgCount < 2)
                 {
-                    // Don't do anything.
+                    missingJpg.Add(targetDirectory);
                 }
-                else if (subdirectoryEntries.Length == 1 && nfoCount == 1)
+                if (mp4Count == 0 && mkvCount == 0 && m4vCount == 0 && aviCount == 0 && webmCount == 0)
                 {
-                    Directory.Delete(targetDirectory);
-                    emptyDirectory.Add(targetDirectory);
+                    missingMovie.Add(targetDirectory);
                 }
-                else
+                if (partCount > 0)
                 {
-                    if (nfoCount == 0)
-                    {
-                        missingNfo.Add(targetDirectory);
-                    }
-                    if (jpgCount < 2)
-                    {
-                        missingJpg.Add(targetDirectory);
-                    }
-                    if (mp4Count == 0 && mkvCount == 0 && m4vCount == 0 && aviCount == 0 && webmCount == 0)
-                    {
-                        missingMovie.Add(targetDirectory);
-                    }
-                    if (partCount > 0)
-                    {
-                        partFiles.Add(targetDirectory);
-                    }
+                    partFiles.Add(targetDirectory);
                 }
 
                 //Type(nfoCount + " nfo, " + jpgCount + " jpg, " + mp4Count + " mp4, " + mkvCount + " mkv, " + m4vCount + " m4v, " + isoCount + " iso, " + unidentifiedCount + " unidentified in " + targetDirectory, 0, 0, 1);
@@ -3623,6 +4688,7 @@ namespace SheetsQuickstart
                     !subdirectory.Contains("\\Trailers") &&
                     !subdirectory.Contains("\\Interviews") &&
                     !subdirectory.Contains("\\Broken apart") &&
+                    !subdirectory.Contains("\\Other") &&
                     !subdirectory.Contains("\\_Collections") &&
                     !subdirectory.Contains("\\.sync"))
                 {
@@ -3724,10 +4790,10 @@ namespace SheetsQuickstart
         /// <summary>
         /// Displays the message in the color based on type.
         /// </summary>
-        /// <param name="messageType">error = red, success = green, warning = yellow, info = blue, question = darkyellow, default = grey.</param>
+        /// <param name="messageType">error = red, harderror = darkred, success = green, warning = yellow, info = blue, data = cyan, question = darkyellow, log = white, default = grey.</param>
         /// <param name="message">The message to display.</param>
         /// <param name="numLines">The number of new lines to print out after the message.</param>
-        /// <param name="speed">The speed at which to type the letters (Higher the number the slower).</param>
+        /// <param name="speed">The speed in MS at which to type the letters (Higher the number the slower).</param>
         /// <param name="pause">The amount of ms to pause before going to the next line.</param>
         public static void DisplayMessage(string messageType, string message, int numLines = 1, int speed = 0, int pause = 0)
         {
@@ -3735,6 +4801,9 @@ namespace SheetsQuickstart
             {
                 case "error":
                     Type(message, speed, pause, numLines, "red");
+                    break;
+                case "harderror":
+                    Type(message, speed, pause, numLines, "darkred");
                     break;
                 case "success":
                     Type(message, speed, pause, numLines, "green");
@@ -3745,8 +4814,14 @@ namespace SheetsQuickstart
                 case "info":
                     Type(message, speed, pause, numLines, "blue");
                     break;
+                case "data":
+                    Type(message, speed, pause, numLines, "cyan");
+                    break;
                 case "question":
                     Type(message, speed, pause, numLines, "darkyellow");
+                    break;
+                case "log":
+                    Type(message, speed, pause, numLines, "white");
                     break;
                 case "default":
                     Type(message, speed, pause, numLines);
@@ -3754,7 +4829,7 @@ namespace SheetsQuickstart
                 default:
                     break;
             }
-        }
+        } // End DisplayMessage()
 
         /// <summary>
         /// Simply types out the text in a typewriter manner. Then adds the number of new lines.
@@ -3954,69 +5029,79 @@ namespace SheetsQuickstart
         /// <returns>The column letter.</returns>
         protected static string ColumnNumToLetter(int columnNum)
         {
-            if (columnNum < 53)
-            {
-                string[] myString = { "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "AA", "AB", "AC", "AD", "AE", "AF", "AG", "AH", "AI", "AJ", "AK", "AL", "AM", "AN", "AO", "AP", "AQ", "AR", "AS", "AT", "AU", "AV", "AW", "AX", "AY", "AZ" };
+            string[] myString = { "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "AA", "AB", "AC", "AD", "AE", "AF", "AG", "AH", "AI", "AJ", "AK", "AL", "AM", "AN", "AO", "AP", "AQ", "AR", "AS", "AT", "AU", "AV", "AW", "AX", "AY", "AZ", "BA", "BB", "BC", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BK", "BL", "BM", "BN", "BO", "BP", "BQ", "BR", "BS", "BT", "BU", "BV", "BW", "BX", "BY", "BZ" };
 
-                return myString[columnNum];
-            }
-            else
-            {
-                return "";
-            }
+            return myString[columnNum];
 
         }
 
-        protected static bool WriteSingleCellToSheet(string strDataToSave, string strCellToSaveData)
+        public static bool WriteSingleCellToSheet(string strDataToSave, string strCellToSaveData)
         {
-            try
+            var tryAgain = false;
+            do
             {
-                Thread.Sleep(1000); // Sleep for a second so we don't go over the Google allotted requests.
-                // How the input data should be interpreted.
-                SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum valueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
-
-                // TODO: Assign values to desired properties of `requestBody`. All existing
-                // properties will be replaced:
-                ValueRange requestBody = new ValueRange
+                try
                 {
-                    MajorDimension = "COLUMNS" // "ROWS" / "COLUMNS"
-                };
-                var oblist = new List<object>() { strDataToSave };
-                requestBody.Values = new List<IList<object>> { oblist };
+                    // Thread.Sleep(1000); // Sleep for a second so we don't go over the Google allotted requests.
+                    // How the input data should be interpreted.
+                    SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum valueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
 
-                UserCredential credential;
+                    // TODO: Assign values to desired properties of `requestBody`. All existing
+                    // properties will be replaced:
+                    ValueRange requestBody = new ValueRange
+                    {
+                        MajorDimension = "COLUMNS" // "ROWS" / "COLUMNS"
+                    };
+                    var oblist = new List<object>() { strDataToSave };
+                    requestBody.Values = new List<IList<object>> { oblist };
 
-                using (var stream =
-                    new FileStream("credentials.json", FileMode.Open, FileAccess.Read))
+                    UserCredential credential;
+
+                    using (var stream =
+                        new FileStream("credentials.json", FileMode.Open, FileAccess.Read))
+                    {
+                        string credPath = "token.json";
+                        credential = GoogleWebAuthorizationBroker.AuthorizeAsync(
+                            GoogleClientSecrets.Load(stream).Secrets,
+                            SCOPES,
+                            "user",
+                            CancellationToken.None,
+                            new FileDataStore(credPath, true)).Result;
+                    }
+
+                    SheetsService sheetsService = new SheetsService(new BaseClientService.Initializer
+                    {
+                        HttpClientInitializer = credential,
+                        ApplicationName = "Google-SheetsSample/0.1",
+                    });
+
+                    SpreadsheetsResource.ValuesResource.UpdateRequest request = sheetsService.Spreadsheets.Values.Update(requestBody, SPREADSHEET_ID, strCellToSaveData);
+                    request.ValueInputOption = valueInputOption;
+
+                    // To execute asynchronously in an async method, replace `request.Execute()` as shown:
+                    UpdateValuesResponse response = request.Execute();
+                    // Data.UpdateValuesResponse response = await request.ExecuteAsync();
+                    tryAgain = false;
+                }
+                catch (Exception e)
                 {
-                    string credPath = "token.json";
-                    credential = GoogleWebAuthorizationBroker.AuthorizeAsync(
-                        GoogleClientSecrets.Load(stream).Secrets,
-                        SCOPES,
-                        "user",
-                        CancellationToken.None,
-                        new FileDataStore(credPath, true)).Result;
+                    var m = e.Message;
+                    if (m.Contains("Quota exceeded"))
+                    {
+                        DisplayMessage("error", "Broke the max calls to the Google Sheet.");
+                        DisplayMessage("info", "Pausing for 30 seconds and trying again.");
+                        Countdown(30);
+                        tryAgain = true;
+                        DisplayMessage("info", "Let's try again.");
+                    } else
+                    {
+                        DisplayMessage("error", "An error has occurred.");
+                        DisplayMessage("harderror", m);
+                    }
                 }
 
-                SheetsService sheetsService = new SheetsService(new BaseClientService.Initializer
-                {
-                    HttpClientInitializer = credential,
-                    ApplicationName = "Google-SheetsSample/0.1",
-                });
-
-                SpreadsheetsResource.ValuesResource.UpdateRequest request = sheetsService.Spreadsheets.Values.Update(requestBody, SPREADSHEET_ID, strCellToSaveData);
-                request.ValueInputOption = valueInputOption;
-
-                // To execute asynchronously in an async method, replace `request.Execute()` as shown:
-                UpdateValuesResponse response = request.Execute();
-                // Data.UpdateValuesResponse response = await request.ExecuteAsync();
-                return true;
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.Message);
-                throw;
-            }
+            } while (tryAgain);
+            return true;
 
         } // End WriteSingleCellToSheet
 
