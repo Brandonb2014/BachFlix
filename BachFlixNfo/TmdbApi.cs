@@ -19,7 +19,7 @@ namespace TmdbApiCall
         public static dynamic MoviesGetDetails(string ImdbId)
         {
             Thread.Sleep(250);
-            string strRestClient = "https://api.themoviedb.org/3/find/" + ImdbId + "?api_key=" + TMDB_API_KEY + "&language=en-US&external_source=imdb_id";
+            string strRestClient = "https://api.themoviedb.org/3/find/" + ImdbId + "?api_key=" + TMDB_API_KEY + "&language=en-US&external_source=imdb_id&append_to_response=videos";
 
             RestClient client = new RestClient(strRestClient);
             RestRequest request = new RestRequest(Method.GET);
@@ -28,7 +28,107 @@ namespace TmdbApiCall
             {
                 dynamic json = JsonConvert.DeserializeObject(response.Content);
                 return json;
-            } else
+            }
+            else
+            {
+                return "";
+            }
+        }
+
+        public static dynamic MoviesGetDetailsByTmdbId(string TmdbId)
+        {
+            try
+            {
+                string strRestClient = "https://api.themoviedb.org/3/movie/" + TmdbId + "?api_key=" + TMDB_API_KEY + "&language=en-US";
+                RestClient client = new RestClient(strRestClient);
+                RestRequest request = new RestRequest(Method.GET);
+                IRestResponse response = client.Execute(request);
+                if (response.IsSuccessful)
+                {
+                    dynamic json = JsonConvert.DeserializeObject(response.Content);
+                    return json;
+                }
+                else
+                {
+                    Program.DisplayMessage("error", response.StatusCode.ToString());
+                    return "";
+                }
+            }
+            catch (System.Exception e)
+            {
+                Program.Type("An error occured!", 0, 0, 1, "Red");
+                Program.Type(e.Message, 0, 0, 1, "DarkRed");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Get the credits information about a movie.
+        /// </summary>
+        /// <param name="ImdbId"></param>
+        /// <returns></returns>
+        public static dynamic MoviesGetCredits(string ImdbId)
+        {
+            Thread.Sleep(250);
+            string strRestClient = "https://api.themoviedb.org/3/movie/" + ImdbId + "/credits?api_key=" + TMDB_API_KEY + "&language=en-US";
+
+            RestClient client = new RestClient(strRestClient);
+            RestRequest request = new RestRequest(Method.GET);
+            IRestResponse response = client.Execute(request);
+            if (response.IsSuccessful)
+            {
+                dynamic json = JsonConvert.DeserializeObject(response.Content);
+                return json;
+            }
+            else
+            {
+                return "";
+            }
+        }
+
+        /// <summary>
+        /// Get the movie watch providers (Streaming services).
+        /// </summary>
+        /// <param name="TmdbId"></param>
+        /// <returns></returns>
+        public static dynamic MoviesGetWatchProviders(string TmdbId)
+        {
+            Thread.Sleep(250);
+            string strRestClient = "https://api.themoviedb.org/3/movie/" + TmdbId + "/watch/providers?api_key=" + TMDB_API_KEY + "&locale=US";
+
+            RestClient client = new RestClient(strRestClient);
+            RestRequest request = new RestRequest(Method.GET);
+            IRestResponse response = client.Execute(request);
+            if (response.IsSuccessful)
+            {
+                dynamic json = JsonConvert.DeserializeObject(response.Content);
+                return json;
+            }
+            else
+            {
+                return response.Content;
+            }
+        }
+
+        /// <summary>
+        /// Get the videos for the selected movie.
+        /// </summary>
+        /// <param name="ImdbId"></param>
+        /// <returns></returns>
+        public static dynamic MoviesGetVideos(string ImdbId)
+        {
+            Thread.Sleep(250);
+            string strRestClient = "https://api.themoviedb.org/3/movie/" + ImdbId + "/videos?api_key=" + TMDB_API_KEY + "&language=en-US";
+
+            RestClient client = new RestClient(strRestClient);
+            RestRequest request = new RestRequest(Method.GET);
+            IRestResponse response = client.Execute(request);
+            if (response.IsSuccessful)
+            {
+                dynamic json = JsonConvert.DeserializeObject(response.Content);
+                return json;
+            }
+            else
             {
                 return "";
             }
@@ -49,6 +149,33 @@ namespace TmdbApiCall
                 IRestResponse response = client.Execute(request);
                 dynamic json = JsonConvert.DeserializeObject(response.Content);
                 return json;
+            }
+            catch (System.Exception e)
+            {
+                Program.Type("An error occured!", 0, 0, 1, "Red");
+                Program.Type(e.Message, 0, 0, 1, "DarkRed");
+                throw;
+            }
+        }
+
+        public static dynamic ActorsGetMovieCredits(string PersonId)
+        {
+            try
+            {
+                string strRestClient = "https://api.themoviedb.org/3/person/" + PersonId + "/movie_credits?api_key=" + TMDB_API_KEY + "&language = en-US";
+                RestClient client = new RestClient(strRestClient);
+                RestRequest request = new RestRequest(Method.GET);
+                IRestResponse response = client.Execute(request);
+                if (response.IsSuccessful)
+                {
+                    dynamic json = JsonConvert.DeserializeObject(response.Content);
+                    return json;
+                }
+                else
+                {
+                    Program.DisplayMessage("error", response.StatusCode.ToString());
+                    return "";
+                }
             }
             catch (System.Exception e)
             {

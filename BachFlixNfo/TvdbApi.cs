@@ -218,7 +218,7 @@ namespace TvdbApiCall
                 Program.Type(e.Message, 0, 0, 1, "DarkRed");
                 throw;
             }
-        } // End TvEpisodesGetDetails()
+        } // End GetTvEpisodeDetails()
 
         public static string GetTvdbJwtKey()
         {
