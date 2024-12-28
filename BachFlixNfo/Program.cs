@@ -370,7 +370,6 @@ namespace SheetsQuickstart
             Type(deleteMovieFilesAtDestinationChoice + "- Delete Movie files from Google Sheet list on chosen hard drive.", 0, 0, 1, MISC_COLOR);
             Type("15- Mark Owned Movies as D=Done || X=Not Done.", 0, 0, 1, MISC_COLOR);
             Type("16- Remove movies from TMDB List. (Work in progress)", 0, 0, 1, MISC_COLOR);
-            Type("17- Move Movies to new rating directory.", 0, 0, 1, MISC_COLOR);
             removeMetadataChoice = "18";
             Type(removeMetadataChoice + "- Remove Metadata (including sub-folders).", 0, 0, 1, MISC_COLOR);
             Type("20- Add Comment to file.", 0, 0, 1, MISC_COLOR);
@@ -417,48 +416,218 @@ namespace SheetsQuickstart
             {
                 Dictionary<string, int> movieSheetVariables = new Dictionary<string, int>
                 {
-                    { ROW_NUM, -1 },
-                    { DIRECTORY, -1 },
+                    { ADDITIONAL_COMMANDS, -1 },
+                    { "Auto Content Rating", -1 },
+                    { "Auto MPAA", -1 },
+                    { "Auto Title", -1 },
+                    { "Cast", -1 },
+                    { "Cindy", -1 },
                     { CLEAN_TITLE, -1 },
+                    { "Content Rating", -1 },
+                    { "Dave", -1 },
+                    { DIRECTORY, -1 },
+                    { "IMDB ID", -1 },
+                    { "IMDB Title", -1 },
+                    { "IMDB URL", -1 },
+                    { ISO_CH_NUM, -1 },
+                    { ISO_INPUT, -1 },
+                    { ISO_TITLE_NUM, -1 },
+                    { "Kids", -1 },
+                    { "Movie Has Trailer", -1 },
+                    { "Movie Letter", -1 },
                     { NFO_BODY, -1 },
+                    { "Ownership", -1 },
+                    { "Plot", -1 },
+                    { "Possible Record Source", -1 },
+                    { QUICK_CREATE, -1 },
+                    { "Release Date", -1 },
+                    { "Resolution", -1 },
+                    { ROW_NUM, -1 },
+                    { "Size", -1 },
+                    { "Sort Title", -1 },
                     { STATUS, -1 },
+                    { "StreamFab", -1 },
+                    { "TMDB ID", -1 },
+                    { "TMDB Rating", -1 },
+                    { "YouTube Trailer ID", -1 }
+                };
+
+                Dictionary<string, int> clearableMovieSheetVariables = new Dictionary<string, int>
+                {
+                    { ROW_NUM, -1 },
+                    { "Alternate", -1 },
+                    { "Status", -1 },
+                    { "Ownership", -1 },
+                    { "Recorded Source", -1 },
+                    { "StreamFab", -1 },
+                    { "Playon", -1 },
+                    { "Removed Splashes", -1 },
+                    { "Include Subtitles", -1 },
+                    { "Verify Subtitles Sync", -1 },
+                    { "Note", -1 },
+                    { "Possible Record Source", -1 },
+                    { "Special", -1 },
+                    { "Kids", -1 },
+                    { "Grayson", -1 },
+                    { "Carson", -1 },
+                    { "Emerson", -1 },
+                    { "Evelyn", -1 },
+                    { "Block Jeff and Shar", -1 },
+                    { "Grandma and Grandpa", -1 },
+                    { "Block BandV", -1 },
+                    { "Cindy", -1 },
+                    { "Dave", -1 },
+                    { "Selected Resolution", -1 },
+                    { "Recorded Version", -1 },
+                    { "Resolution", -1 },
+                    { "Date Added", -1 },
+                    { "Size", -1 },
+                    { "IMDB Title", -1 },
+                    { "Sort Title", -1 },
+                    { "Content Rating", -1 },
+                    { "IMDB URL", -1 },
+                    { "TMDB Rating", -1 },
+                    { "Plot", -1 },
+                    { "Release Date", -1 },
+                    { "MPAA", -1 },
+                    { "YouTube Trailer ID", -1 },
+                    { "Movie Has Trailer", -1 },
+                    { "Cast", -1 },
+                    { "TMDB ID", -1 },
                     { QUICK_CREATE, -1 }
+                };
+
+                Dictionary<string, int> autopopulateActorsSheetVariables = new Dictionary<string, int>
+                {
+                    { "Name", -1 },
+                    { "person_id", -1 }
+                };
+
+                Dictionary<string, int> skipMovieIdsSheetVariables = new Dictionary<string, int>
+                {
+                    { "Skip", -1 }
                 };
 
                 Dictionary<string, int> dbSheetVariables = new Dictionary<string, int>
                 {
-                    { ROW_NUM, -1 },
-                    { NFO_BODY, -1 },
+                    { "Clean Name", -1 },
+                    { "Clean Name with Year", -1 },
+                    { "Content Rating", -1 },
+                    { "Continuing?", -1 },
                     { "Found Locations", -1 },
-                    { "Clean Name with Year", -1 }
+                    { "Hard Drive Letter", -1 },
+                    { NFO_BODY, -1 },
+                    { ROW_NUM, -1 },
+                    { "Season Count", -1 },
+                    { "Series Name", -1 },
+                    { "Size", -1 },
+                    { "TVDB ID", -1 },
+                    { "TVDB Slug", -1 },
+                    { "Year", -1 }
                 };
 
                 Dictionary<string, int> combinedEpisodeSheetVariables = new Dictionary<string, int>
                 {
-                    { "TVDB ID", -1 },
                     { "Combined Episode Name", -1 },
+                    { "Episode 1 No.", -1 },
+                    { "Episode 1 Plot", -1 },
+                    { "Episode 1 Season", -1 },
+                    { "Episode 1 Title", -1 },
+                    { "Episode 2 No.", -1 },
+                    { "Episode 2 Plot", -1 },
+                    { "Episode 2 Season", -1 },
+                    { "Episode 2 Title", -1 },
+                    { "Lock Plot 1", -1 },
+                    { "Lock Plot 2", -1 },
                     { "New Episode Name", -1 },
-                    { NFO_BODY, -1 }
+                    { NFO_BODY, -1 },
+                    { ROW_NUM, -1 },
+                    { "Show Title", -1 },
+                    { "TMDB ID", -1 },
+                    { "TVDB ID", -1 }
                 };
 
                 Dictionary<string, int> severalCombinedSheetVariables = new Dictionary<string, int>
                 {
-                    { "TVDB ID", -1 },
                     { "Combined Episode Name", -1 },
+                    { "Episode 1 No.", -1 },
+                    { "Episode 1 Plot", -1 },
+                    { "Episode 1 Season", -1 },
+                    { "Episode 1 Title", -1 },
+                    { "Episode 2 No.", -1 },
+                    { "Episode 2 Plot", -1 },
+                    { "Episode 2 Season", -1 },
+                    { "Episode 2 Title", -1 },
+                    { "Episode 3 No.", -1 },
+                    { "Episode 3 Plot", -1 },
+                    { "Episode 3 Season", -1 },
+                    { "Episode 3 Title", -1 },
+                    { "Episode 4 No.", -1 },
+                    { "Episode 4 Plot", -1 },
+                    { "Episode 4 Season", -1 },
+                    { "Episode 4 Title", -1 },
+                    { "Episode 5 No.", -1 },
+                    { "Episode 5 Plot", -1 },
+                    { "Episode 5 Season", -1 },
+                    { "Episode 5 Title", -1 },
+                    { "Episode 6 No.", -1 },
+                    { "Episode 6 Plot", -1 },
+                    { "Episode 6 Season", -1 },
+                    { "Episode 6 Title", -1 },
+                    { "Episode 7 No.", -1 },
+                    { "Episode 7 Plot", -1 },
+                    { "Episode 7 Season", -1 },
+                    { "Episode 7 Title", -1 },
+                    { "Episode 8 No.", -1 },
+                    { "Episode 8 Plot", -1 },
+                    { "Episode 8 Season", -1 },
+                    { "Episode 8 Title", -1 },
+                    { "Episode 9 No.", -1 },
+                    { "Episode 9 Plot", -1 },
+                    { "Episode 9 Season", -1 },
+                    { "Episode 9 Title", -1 },
+                    { "Episode 10 No.", -1 },
+                    { "Episode 10 Plot", -1 },
+                    { "Episode 10 Season", -1 },
+                    { "Episode 10 Title", -1 },
                     { "New Episode Name", -1 },
-                    { NFO_BODY, -1 }
+                    { NFO_BODY, -1 },
+                    { ROW_NUM, -1 },
+                    { "Series Name", -1 },
+                    { "TMDB ID", -1 },
+                    { "TVDB ID", -1 }
                 };
 
                 Dictionary<string, int> youtubeSheetVariables = new Dictionary<string, int>
                 {
-                    { DIRECTORY, -1 },
                     { CLEAN_TITLE, -1 },
+                    { DIRECTORY, -1 },
+                    { NFO_BODY, -1 },
+                    { QUICK_CREATE, -1 },
                     { ROW_NUM, -1 },
+                    { STATUS, -1 }
+                };
+
+                Dictionary<string, int> fitnessSheetVariables = new Dictionary<string, int>
+                {
+                    { "Program", -1 },
+                    { "Subfolder", -1 },
+                    { "Name", -1 },
+                    { "Title", -1 },
                     { NFO_BODY, -1 }
                 };
 
-                string titleRowDataRange = "", mainDataRange = "";
-                int type = 0;
+                Dictionary<string, int> recordedNamesSheetVariables = new Dictionary<string, int>
+                {
+                    { "Recorded Name", -1 },
+                    { "Actual Name", -1 }
+                };
+
+                Dictionary<string, int> renameEpisodesSheetVariables = new Dictionary<string, int>
+                {
+                    { "Original Name", -1 },
+                    { ROW_NUM, -1 }
+                };
 
                 if (choice.Equals(exitChoice))
                 {
@@ -548,112 +717,46 @@ namespace SheetsQuickstart
                 {
                     Type("Overwrite ALL YouTube NFO Files. Let's go!", 0, 0, 1);
 
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(DIRECTORY, -1); // The path to the folder holding the movie.
-                    sheetVariables.Add(CLEAN_TITLE, -1); // Concatenate the Clean Title to the Directory to save the NFO File.
-                    sheetVariables.Add(NFO_BODY, -1); // The text of the NFO File to save.
+                    IList<IList<Object>> movieData = CallGetData(youtubeSheetVariables, YOUTUBE_TITLE_RANGE, YOUTUBE_DATA_RANGE);
 
-                    titleRowDataRange = YOUTUBE_TITLE_RANGE;
-                    mainDataRange = YOUTUBE_DATA_RANGE;
-
-                    type = 1;
-
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    CreateNfoFiles(movieData, sheetVariables, type, true);
+                    CreateNfoFiles(movieData, youtubeSheetVariables, 1, true);
                 }
                 else if (choice.Equals(selectedYoutubeNfoFilesChoice)) // NFO files for Selected videos - overwrite or put in new ones. if they are selected.
                 {
                     Type("Create/Overwrite selected YouTube NFO Files. Let's go!", 0, 0, 1);
 
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(DIRECTORY, -1); // The path to the folder holding the movie.
-                    sheetVariables.Add(CLEAN_TITLE, -1); // Concatenate the Clean Title to the Directory to save the NFO File.
-                    sheetVariables.Add(NFO_BODY, -1); // The text of the NFO File to save.
-                    sheetVariables.Add(STATUS, -1); // The Status of the movie i.e. if the movie should actually be there.
-                    sheetVariables.Add(QUICK_CREATE, -1); // Create/Overwrite selected NFO files.
+                    IList<IList<Object>> movieData = CallGetData(youtubeSheetVariables, YOUTUBE_TITLE_RANGE, YOUTUBE_DATA_RANGE);
 
-                    titleRowDataRange = YOUTUBE_TITLE_RANGE;
-                    mainDataRange = YOUTUBE_DATA_RANGE;
-
-                    type = 2;
-
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    CreateNfoFiles(movieData, sheetVariables, type, true);
+                    CreateNfoFiles(movieData, youtubeSheetVariables, 2, true);
                 }
                 else if (choice.Equals(missingFitnessVideoNfoFilesChoice)) // NFO files for New videos - does not overwrite any, just puts in missing NFO files.
                 {
                     Type("This method is still in the works, please try another one.", 0, 0, 1, "Yellow");
                     //Type("Create missing Fitness Video NFO Files. Let's go!", 0, 0, 1, "Blue");
 
-                    //// A dictionary to hold the columns we need to find.
-                    //sheetVariables.Add("Program", -1);
-                    //sheetVariables.Add("Subfolder", -1);
-                    //sheetVariables.Add("Name", -1);
-                    //sheetVariables.Add("Title", -1);
-                    //sheetVariables.Add(NFO_BODY, -1);
+                    //IList<IList<Object>> videoData = CallGetData(fitnessSheetVariables, FITNESS_VIDEO_TITLE_RANGE, FITNESS_VIDEO_DATA_RANGE);
 
-                    //titleRowDataRange = FITNESS_VIDEO_TITLE_RANGE;
-                    //mainDataRange = FITNESS_VIDEO_DATA_RANGE;
-
-                    //IList<IList<Object>> videoData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    //BachFlixNfo.MissingFitnessVideoNfoFiles(videoData, sheetVariables);
+                    //BachFlixNfo.MissingFitnessVideoNfoFiles(videoData, fitnessSheetVariables);
                 }
                 else if (choice.Equals(overwriteAllFitnessVideoNfoFilesChoice)) // NFO files for All videos - overwrite old NFO files AND put in new ones.
                 {
                     Type("Overwrite ALL YouTube NFO Files. Let's go!", 0, 0, 1, "Blue");
 
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add("Program", -1);
-                    sheetVariables.Add("Subfolder", -1);
-                    sheetVariables.Add("Name", -1);
-                    sheetVariables.Add("Title", -1);
-                    sheetVariables.Add(NFO_BODY, -1);
+                    IList<IList<Object>> videoData = CallGetData(fitnessSheetVariables, FITNESS_VIDEO_TITLE_RANGE, FITNESS_VIDEO_DATA_RANGE);
 
-                    titleRowDataRange = FITNESS_VIDEO_TITLE_RANGE;
-                    mainDataRange = FITNESS_VIDEO_DATA_RANGE;
-
-                    IList<IList<Object>> videoData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    BachFlixNfo.OverwriteFitnessVideoNfoFiles(videoData, sheetVariables);
+                    BachFlixNfo.OverwriteFitnessVideoNfoFiles(videoData, fitnessSheetVariables);
                 }
-                else if (choice.Equals(convertMoviesChoice)) // Convert movies the fast cheap way.
+                else if (choice.Equals(convertMoviesChoice))
                 {
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(DIRECTORY, -1); // The path to the folder holding the video.
-                    sheetVariables.Add(CLEAN_TITLE, -1); // Concatenate the Clean Title to the Directory.
-                    sheetVariables.Add(ISO_INPUT, -1); // The path to the ISO file.
-                    sheetVariables.Add(ISO_TITLE_NUM, -1); // The number of the ISO title to use.
-                    sheetVariables.Add(ISO_CH_NUM, -1); // The number of the ISO chapter to use.
-                    sheetVariables.Add(QUICK_CREATE, -1); // Convert the selected files.
-                    sheetVariables.Add(ADDITIONAL_COMMANDS, -1); // Add any additional commands to the convert process.
-
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
-
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-                    ConvertVideo(movieData, sheetVariables, "--preset-import-file MP4_RF22f.json -Z \"MP4 RF22f\"");
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                    ConvertVideo(movieData, movieSheetVariables, "--preset-import-file MP4_RF22f.json -Z \"MP4 RF22f\"");
                 }
-                else if (choice.Equals(convertMoviesSlowChoice)) // Convert movies the LONG slow way.
+                else if (choice.Equals(convertMoviesSlowChoice))
                 {
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(DIRECTORY, -1); // The path to the folder holding the video.
-                    sheetVariables.Add(CLEAN_TITLE, -1); // Concatenate the Clean Title to the Directory.
-                    sheetVariables.Add(ISO_INPUT, -1); // The path to the ISO file.
-                    sheetVariables.Add(ISO_TITLE_NUM, -1); // The number of the ISO title to use.
-                    sheetVariables.Add(ISO_CH_NUM, -1); // The number of the ISO chapter to use.
-                    sheetVariables.Add(QUICK_CREATE, -1); // Convert the selected files.
-                    sheetVariables.Add(ADDITIONAL_COMMANDS, -1); // Add any additional commands to the convert process.
-
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
-
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-                    ConvertVideo(movieData, sheetVariables, "--preset-import-file MP4_RF22s.json -Z \"MP4 RF22s\"");
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                    ConvertVideo(movieData, movieSheetVariables, "--preset-import-file MP4_RF22s.json -Z \"MP4 RF22s\"");
                 }
-                else if (choice.Equals(convertDirectoryChoice)) // Convert a directory.
+                else if (choice.Equals(convertDirectoryChoice))
                 {
                     DisplayMessage("info", "Convert a directory. Let's go!");
                     var directory = AskForDirectory();
@@ -838,40 +941,12 @@ namespace SheetsQuickstart
                 {
                     DisplayMessage("info", "Fill in the movie streaming providers. Let's go!");
 
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1);
-                    sheetVariables.Add("StreamFab", -1);
-                    sheetVariables.Add("Possible Record Source", -1);
-                    sheetVariables.Add("TMDB ID", -1);
-                    sheetVariables.Add("Resolution", -1);
-                    sheetVariables.Add("IMDB Title", -1);
-
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
-
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-                    FillInStreamingProviders(movieData, sheetVariables);
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                    FillInStreamingProviders(movieData, movieSheetVariables);
                 }
                 else if (choice.Equals(addAllActorsCredits))
                 {
                     DisplayMessage("info", "Fill in all the actors credits. Let's go!");
-
-                    Dictionary<string, int> autopopulateActorsSheetVariables = new Dictionary<string, int> { };
-                    autopopulateActorsSheetVariables.Add("Name", -1);
-                    autopopulateActorsSheetVariables.Add("person_id", -1);
-
-                    Dictionary<string, int> skipMovieIdsSheetVariables = new Dictionary<string, int> { };
-                    skipMovieIdsSheetVariables.Add("Skip", -1);
-
-                    DisplayMessage("info", "Add an actors full list of movies to the Google Sheet. Let's go!");
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1);
-                    sheetVariables.Add("TMDB ID", -1);
-                    sheetVariables.Add("IMDB Title", -1);
-                    sheetVariables.Add("IMDB URL", -1);
-                    sheetVariables.Add("Sort Title", -1);
-                    sheetVariables.Add("Content Rating", -1);
-                    sheetVariables.Add("Plot", -1);
 
                     IList<IList<Object>> autoPopulateActorsData = CallGetData(autopopulateActorsSheetVariables, AUTOPOULATE_ACTORS_TITLE_RANGE, AUTOPOULATE_ACTORS_DATA_RANGE, "Gathering list of actors... ");
                     IList<IList<Object>> skipMovieIdsData = CallGetData(skipMovieIdsSheetVariables, SKIP_ACTORS_ID_TITLE_RANGE, SKIP_ACTORS_ID_DATA_RANGE, "Gathering list of movie IDs to skip... ");
@@ -880,7 +955,7 @@ namespace SheetsQuickstart
                     {
                         string actorPlural = autoPopulateActorsData.Count == 1 ? " actor " : " actors ";
                         int count = 1;
-                        IList<IList<Object>> movieData = CallGetData(sheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                        IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
                         DisplayMessage("info", autoPopulateActorsData.Count + actorPlural + "found. Now stepping through each actor to get data.");
                         BatchUpdateValuesRequest batchRequest = new BatchUpdateValuesRequest
                         {
@@ -899,7 +974,7 @@ namespace SheetsQuickstart
                             dynamic actorMovieCredits = TmdbApi.ActorsGetMovieCredits(actor[1].ToString());
                             DisplayMessage("success", "DONE");
 
-                            batchRequest = FillInActorMovieCredits(movieData, sheetVariables, actorMovieCredits.cast, ref skipMovieIdsData, message, batchRequest);
+                            batchRequest = FillInActorMovieCredits(movieData, movieSheetVariables, actorMovieCredits.cast, ref skipMovieIdsData, message, batchRequest);
                             count++;
                         }
 
@@ -916,107 +991,15 @@ namespace SheetsQuickstart
                 {
                     DisplayMessage("info", "Clear the data from selected rows. Let's go!");
 
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1);
-                    sheetVariables.Add("Alternate", -1);
-                    sheetVariables.Add("Status", -1);
-                    sheetVariables.Add("Ownership", -1);
-                    sheetVariables.Add("Recorded Source", -1);
-                    sheetVariables.Add("StreamFab", -1);
-                    sheetVariables.Add("Playon", -1);
-                    sheetVariables.Add("Removed Splashes", -1);
-                    sheetVariables.Add("Include Subtitles", -1);
-                    sheetVariables.Add("Verify Subtitles Sync", -1);
-                    sheetVariables.Add("Note", -1);
-                    sheetVariables.Add("Possible Record Source", -1);
-                    sheetVariables.Add("Special", -1);
-                    sheetVariables.Add("Kids", -1);
-                    sheetVariables.Add("Grayson", -1);
-                    sheetVariables.Add("Carson", -1);
-                    sheetVariables.Add("Emerson", -1);
-                    sheetVariables.Add("Evelyn", -1);
-                    sheetVariables.Add("Block Jeff and Shar", -1);
-                    sheetVariables.Add("Grandma and Grandpa", -1);
-                    sheetVariables.Add("Block BandV", -1);
-                    sheetVariables.Add("Cindy", -1);
-                    sheetVariables.Add("Dave", -1);
-                    sheetVariables.Add("Selected Resolution", -1);
-                    sheetVariables.Add("Recorded Version", -1);
-                    sheetVariables.Add("Resolution", -1);
-                    sheetVariables.Add("Date Added", -1);
-                    sheetVariables.Add("Size", -1);
-                    sheetVariables.Add("IMDB Title", -1);
-                    sheetVariables.Add("Sort Title", -1);
-                    sheetVariables.Add("Content Rating", -1);
-                    sheetVariables.Add("IMDB URL", -1);
-                    sheetVariables.Add("TMDB Rating", -1);
-                    sheetVariables.Add("Plot", -1);
-                    sheetVariables.Add("Release Date", -1);
-                    sheetVariables.Add("MPAA", -1);
-                    sheetVariables.Add("YouTube Trailer ID", -1);
-                    sheetVariables.Add("Movie Has Trailer", -1);
-                    sheetVariables.Add("Cast", -1);
-                    sheetVariables.Add("TMDB ID", -1);
-                    sheetVariables.Add(QUICK_CREATE, -1);
-
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
-
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-                    ClearSelectedRowData(movieData, sheetVariables);
+                    IList<IList<Object>> movieData = CallGetData(clearableMovieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                    ClearSelectedRowData(movieData, clearableMovieSheetVariables);
                 }
                 else if (choice.Equals(clearSelectedRowInMoviesSheetAndAddToSkipList))
                 {
                     DisplayMessage("info", "Clear the data from selected rows. Let's go!");
 
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1);
-                    sheetVariables.Add("Alternate", -1);
-                    sheetVariables.Add("Status", -1);
-                    sheetVariables.Add("Ownership", -1);
-                    sheetVariables.Add("Recorded Source", -1);
-                    sheetVariables.Add("StreamFab", -1);
-                    sheetVariables.Add("Playon", -1);
-                    sheetVariables.Add("Removed Splashes", -1);
-                    sheetVariables.Add("Include Subtitles", -1);
-                    sheetVariables.Add("Verify Subtitles Sync", -1);
-                    sheetVariables.Add("Note", -1);
-                    sheetVariables.Add("Possible Record Source", -1);
-                    sheetVariables.Add("Special", -1);
-                    sheetVariables.Add("Kids", -1);
-                    sheetVariables.Add("Grayson", -1);
-                    sheetVariables.Add("Carson", -1);
-                    sheetVariables.Add("Emerson", -1);
-                    sheetVariables.Add("Evelyn", -1);
-                    sheetVariables.Add("Block Jeff and Shar", -1);
-                    sheetVariables.Add("Grandma and Grandpa", -1);
-                    sheetVariables.Add("Block BandV", -1);
-                    sheetVariables.Add("Cindy", -1);
-                    sheetVariables.Add("Dave", -1);
-                    sheetVariables.Add("Selected Resolution", -1);
-                    sheetVariables.Add("Recorded Version", -1);
-                    sheetVariables.Add("Resolution", -1);
-                    sheetVariables.Add("Date Added", -1);
-                    sheetVariables.Add("Size", -1);
-                    sheetVariables.Add("IMDB Title", -1);
-                    sheetVariables.Add("Sort Title", -1);
-                    sheetVariables.Add("Content Rating", -1);
-                    sheetVariables.Add("IMDB URL", -1);
-                    sheetVariables.Add("TMDB Rating", -1);
-                    sheetVariables.Add("Plot", -1);
-                    sheetVariables.Add("Release Date", -1);
-                    sheetVariables.Add("MPAA", -1);
-                    sheetVariables.Add("YouTube Trailer ID", -1);
-                    sheetVariables.Add("Movie Has Trailer", -1);
-                    sheetVariables.Add("Cast", -1);
-                    sheetVariables.Add("TMDB ID", -1);
-                    sheetVariables.Add(QUICK_CREATE, -1);
-
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
-
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-                    ClearSelectedRowData(movieData, sheetVariables);
+                    IList<IList<Object>> movieData = CallGetData(clearableMovieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                    ClearSelectedRowData(movieData, clearableMovieSheetVariables);
                 }
                 else if (choice.Equals(moveFolderContentsChoice))
                 {
@@ -1080,170 +1063,70 @@ namespace SheetsQuickstart
                 else if (choice.Equals(searchYoutubeAndDownloadMovieTrailersChoice))
                 {
                     DisplayMessage("info", "Search for and download movie trailers from YouTube. Let's go!", 2);
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1);
-                    sheetVariables.Add(DIRECTORY, -1); // To check the movie folder for a trailer.
-                    sheetVariables.Add(CLEAN_TITLE, -1); // To use to search for on YouTube and name the downloaded trailer.
-                    sheetVariables.Add("YouTube Trailer ID", -1); // To hold the ID to download the video.
-                    sheetVariables.Add("Status", -1); // To only check the movie folders that are actually on BachFlix.
 
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
-
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-                    SearchAndDownloadMovieTrailers(movieData, sheetVariables);
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                    SearchAndDownloadMovieTrailers(movieData, movieSheetVariables);
                 }
                 else if (choice.Equals(downloadMovieTrailersChoice))
                 {
-                    DisplayMessage("info", "Get the YouTube IDs from Google sheets and use yt-dlp to download them. Let's go!");
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1);
-                    sheetVariables.Add(DIRECTORY, -1); // To check the movie folder for a trailer.
-                    sheetVariables.Add(CLEAN_TITLE, -1); // To use to search for on YouTube and name the downloaded trailer.
-                    sheetVariables.Add("YouTube Trailer ID", -1); // To hold the ID to download the video.
-                    sheetVariables.Add("Movie Has Trailer", -1); // To record that the movie has a trailer.
-                    sheetVariables.Add("Status", -1); // To only check the movie folders that are actually on BachFlix.
+                    DisplayMessage("info", "Get the YouTube IDs from Google sheets and use yt-dlp to download them. Let's go!", 2);
 
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
-
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-                    DownloadMovieTrailers(movieData, sheetVariables);
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                    DownloadMovieTrailers(movieData, movieSheetVariables);
                 }
                 else if (choice.Equals(getVideoResolutionChoice))
                 {
                     DisplayMessage("info", "Add Video Resolutions to the Google Sheet. Let's go!");
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1);
-                    sheetVariables.Add("Resolution", -1);
-                    sheetVariables.Add(DIRECTORY, -1);
-                    sheetVariables.Add(CLEAN_TITLE, -1);
-                    sheetVariables.Add("StreamFab", -1);
-                    sheetVariables.Add("Status", -1);
 
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
-
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-                    FillInVideoResolution(movieData, sheetVariables, false);
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                    FillInVideoResolution(movieData, movieSheetVariables, false);
                 }
                 else if (choice.Equals(overwriteVideoResolutionChoice))
                 {
                     DisplayMessage("info", "Overwrite Video Resolutions in Google Sheet. Let's go!");
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1);
-                    sheetVariables.Add("Resolution", -1);
-                    sheetVariables.Add(DIRECTORY, -1);
-                    sheetVariables.Add(CLEAN_TITLE, -1);
-                    sheetVariables.Add("StreamFab", -1);
-                    sheetVariables.Add("Status", -1);
 
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
-
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-                    FillInVideoResolution(movieData, sheetVariables, true);
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                    FillInVideoResolution(movieData, movieSheetVariables, true);
                 }
                 else if (choice.Equals(addSizeOfTvShowDirectories))
                 {
-                    Type("Add the size of TV Show directories to the DB sheet. Let's go!", 0, 0, 1);
+                    Type("Add the size of TV Show directories to the DB sheet. Let's go!", 0, 0, 2);
 
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1); // Simply the row number we are on, to better help writing back to the Sheet.
-                    sheetVariables.Add("Clean Name", -1);
-                    sheetVariables.Add("Clean Name with Year", -1);
-                    sheetVariables.Add("Hard Drive Letter", -1);
-                    sheetVariables.Add("Size", -1);
-                    sheetVariables.Add("TVDB ID", -1);
-                    sheetVariables.Add("Found Locations", -1);
+                    IList<IList<Object>> videoData = CallGetData(dbSheetVariables, DB_TITLE_RANGE, DB_DATA_RANGE);
 
-                    titleRowDataRange = DB_TITLE_RANGE;
-                    mainDataRange = DB_DATA_RANGE;
-
-                    IList<IList<Object>> videoData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    InsertTvShowDirectorySizesIntoDbSheet(videoData, sheetVariables, false);
+                    InsertTvShowDirectorySizesIntoDbSheet(videoData, dbSheetVariables, false);
                 }
                 else if (choice.Equals(overwriteSizeOfTvShowDirectories))
                 {
-                    Type("Overwrite the size of TV Show directories to the DB sheet. Let's go!", 0, 0, 1);
+                    Type("Overwrite the size of TV Show directories to the DB sheet. Let's go!", 0, 0, 2);
 
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1); // Simply the row number we are on, to better help writing back to the Sheet.
-                    sheetVariables.Add("Clean Name", -1);
-                    sheetVariables.Add("Clean Name with Year", -1);
-                    sheetVariables.Add("Hard Drive Letter", -1);
-                    sheetVariables.Add("Size", -1);
-                    sheetVariables.Add("TVDB ID", -1);
-                    sheetVariables.Add("Found Locations", -1);
+                    IList<IList<Object>> videoData = CallGetData(dbSheetVariables, DB_TITLE_RANGE, DB_DATA_RANGE);
 
-                    titleRowDataRange = DB_TITLE_RANGE;
-                    mainDataRange = DB_DATA_RANGE;
-
-                    IList<IList<Object>> videoData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    InsertTvShowDirectorySizesIntoDbSheet(videoData, sheetVariables, true);
+                    InsertTvShowDirectorySizesIntoDbSheet(videoData, dbSheetVariables, true);
                 }
                 else if (choice.Equals(addSizeOfMovieDirectories))
                 {
-                    Type("Add the size of Movie directories to the Movies Sheet. Let's go!", 0, 0, 1);
+                    Type("Add the size of Movie directories to the Movies Sheet. Let's go!", 0, 0, 2);
 
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1); // Simply the row number we are on, to better help writing back to the Sheet.
-                    sheetVariables.Add("Status", -1);
-                    sheetVariables.Add("Size", -1);
-                    sheetVariables.Add("IMDB Title", -1);
-                    sheetVariables.Add("Directory", -1);
-                    sheetVariables.Add("IMDB URL", -1);
+                    IList<IList<Object>> videoData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
 
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
-
-                    IList<IList<Object>> videoData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    InsertMovieDirectorySizesIntoMoviesSheet(videoData, sheetVariables, false);
+                    InsertMovieDirectorySizesIntoMoviesSheet(videoData, movieSheetVariables, false);
                 }
                 else if (choice.Equals(overwriteSizeOfMovieDirectories))
                 {
-                    Type("Overwrite the size of Movie directories to the Movies Sheet. Let's go!", 0, 0, 1);
+                    Type("Overwrite the size of Movie directories to the Movies Sheet. Let's go!", 0, 0, 2);
 
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1); // Simply the row number we are on, to better help writing back to the Sheet.
-                    sheetVariables.Add("Status", -1);
-                    sheetVariables.Add("Size", -1);
-                    sheetVariables.Add("IMDB Title", -1);
-                    sheetVariables.Add("Directory", -1);
-                    sheetVariables.Add("IMDB URL", -1);
+                    IList<IList<Object>> videoData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
 
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
-
-                    IList<IList<Object>> videoData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    InsertMovieDirectorySizesIntoMoviesSheet(videoData, sheetVariables, true);
+                    InsertMovieDirectorySizesIntoMoviesSheet(videoData, movieSheetVariables, true);
                 }
                 else if (choice.Equals(fetchTvShowPlotsChoice)) // Fetch TV Show episode plots from TVDB.
                 {
-                    Type("Gather the TV Show episode plots from TVDB. Let's go!", 0, 0, 1);
+                    Type("Gather the TV Show episode plots from TVDB. Let's go!", 0, 0, 2);
 
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add("Combined Episode Name", -1);
-                    sheetVariables.Add("TMDB ID", -1);
-                    sheetVariables.Add("Episode 1 Title", -1);
-                    sheetVariables.Add("Episode 2 Title", -1);
-                    sheetVariables.Add("Episode 1 Season", -1);
-                    sheetVariables.Add("Episode 1 No.", -1);
-                    sheetVariables.Add("Episode 2 Season", -1);
-                    sheetVariables.Add("Episode 2 No.", -1);
-                    sheetVariables.Add("Episode 1 Plot", -1);
-                    sheetVariables.Add("Episode 2 Plot", -1);
+                    IList<IList<Object>> videoData = CallGetData(combinedEpisodeSheetVariables, COMBINED_EPISODES_TITLE_RANGE, COMBINED_EPISODES_DATA_RANGE);
 
-                    titleRowDataRange = COMBINED_EPISODES_TITLE_RANGE;
-                    mainDataRange = COMBINED_EPISODES_DATA_RANGE;
-
-                    IList<IList<Object>> videoData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    BachFlixNfo.InputTvShowPlots(videoData, sheetVariables);
+                    BachFlixNfo.InputTvShowPlots(videoData, combinedEpisodeSheetVariables);
 
                 }
                 else if (choice.Equals(fixRecordedNamesChoice)) // Fix recorded names.
@@ -1253,16 +1136,9 @@ namespace SheetsQuickstart
 
                     if (directory != "0")
                     {
-                        // A dictionary to hold the columns we need to find.
-                        sheetVariables.Add("Recorded Name", -1);
-                        sheetVariables.Add("Actual Name", -1);
+                        IList<IList<Object>> videoData = CallGetData(recordedNamesSheetVariables, RECORDED_NAMES_TITLE_RANGE, RECORDED_NAMES_DATA_RANGE);
 
-                        titleRowDataRange = RECORDED_NAMES_TITLE_RANGE;
-                        mainDataRange = RECORDED_NAMES_DATA_RANGE;
-
-                        IList<IList<Object>> videoData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                        BachFlixNfo.FixRecordedNames(videoData, sheetVariables, directory);
+                        BachFlixNfo.FixRecordedNames(videoData, recordedNamesSheetVariables, directory);
                     }
 
                 }
@@ -1356,104 +1232,45 @@ namespace SheetsQuickstart
                         TrimTitlesInDirectory(directory);
                         CreateFoldersAndMoveFiles(directory);
                     }
-                }
-                //else if (choice.Equals(convertTvShowsSlowChoice)) // Convert TV Shows the LONG slow way.
-                //{
-                //    // A dictionary to hold the columns we need to find.
-                //    sheetVariables.Add(DIRECTORY, -1); // The path to the folder holding the video.
-                //    sheetVariables.Add(CLEAN_TITLE, -1); // Concatenate the Clean Title to the Directory.
-                //    sheetVariables.Add(ISO_INPUT, -1); // The path to the ISO file.
-                //    sheetVariables.Add(ISO_TITLE_NUM, -1); // The number of the ISO title to use.
-                //    sheetVariables.Add(ISO_CH_NUM, -1); // The number of the ISO chapter to use.
-                //    sheetVariables.Add(QUICK_CREATE, -1); // Convert the selected files.
-                //    sheetVariables.Add(ADDITIONAL_COMMANDS, -1); // Add any additional commands to the convert process.
-
-                //    titleRowDataRange = EPISODES_TITLE_RANGE;
-                //    mainDataRange = EPISODES_DATA_RANGE;
-
-                //    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-                //    ConvertVideo(movieData, sheetVariables, "--preset-import-file MP4_RF22s.json -Z \"MP4 RF22s\"");
-                //}
+                } 
                 else if (choice.Equals(insertMissingMovieDataChoice))
                 {
-                    Type("Insert missing movie data into the Google Sheet. Let's go!", 0, 0, 1);
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1);
-                    sheetVariables.Add("TMDB ID", -1);
-                    sheetVariables.Add("TMDB Rating", -1);
-                    sheetVariables.Add("Plot", -1);
-                    sheetVariables.Add("IMDB ID", -1);
-                    sheetVariables.Add("IMDB Title", -1);
-                    sheetVariables.Add("Sort Title", -1);
-                    sheetVariables.Add("Cast", -1);
-                    sheetVariables.Add("Auto Content Rating", -1);
-                    sheetVariables.Add("Auto MPAA", -1);
-                    sheetVariables.Add("Content Rating", -1);
-                    sheetVariables.Add("MPAA", -1);
-                    sheetVariables.Add("Possible Record Source", -1);
-                    sheetVariables.Add("Release Date", -1);
-                    sheetVariables.Add("Auto Title", -1);
-                    sheetVariables.Add("YouTube Trailer ID", -1);
-                    sheetVariables.Add(QUICK_CREATE, -1);
+                    Type("Insert missing movie data into the Google Sheet. Let's go!", 0, 0, 2);
 
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
-
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
 
                     DisplayMessage("warning", "Looking through sheet data for missing data... ");
-                    InputMovieData(movieData, sheetVariables);
+                    InputMovieData(movieData, movieSheetVariables);
                     DisplayMessage("success", "Done", 2);
                     DisplayMessage("warning", "Now looking through sheet data for missing cast... ");
-                    InputMovieCredits(movieData, sheetVariables);
+                    InputMovieCredits(movieData, movieSheetVariables);
                     DisplayMessage("success", "Done", 2);
                     DisplayMessage("warning", "Now looking through sheet data for auto populated data... ");
-                    CopyAutoPopulatedData(movieData, sheetVariables);
+                    CopyAutoPopulatedData(movieData, movieSheetVariables);
                     DisplayMessage("success", "Done", 2);
                 }
                 else if (choice.Equals(repeatInsertMissingMovieDataChoice))
                 {
                     bool repeatDataCall = true;
-                    Type("Insert missing movie data into the Google Sheet. Let's go!", 0, 0, 1);
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1);
-                    sheetVariables.Add("TMDB ID", -1);
-                    sheetVariables.Add("TMDB Rating", -1);
-                    sheetVariables.Add("Plot", -1);
-                    sheetVariables.Add("IMDB ID", -1);
-                    sheetVariables.Add("IMDB Title", -1);
-                    sheetVariables.Add("Sort Title", -1);
-                    sheetVariables.Add("Cast", -1);
-                    sheetVariables.Add("Auto Content Rating", -1);
-                    sheetVariables.Add("Auto MPAA", -1);
-                    sheetVariables.Add("Content Rating", -1);
-                    sheetVariables.Add("MPAA", -1);
-                    sheetVariables.Add("Possible Record Source", -1);
-                    sheetVariables.Add("Release Date", -1);
-                    sheetVariables.Add("Auto Title", -1);
-                    sheetVariables.Add("YouTube Trailer ID", -1);
-                    sheetVariables.Add(QUICK_CREATE, -1);
+                    Type("Insert missing movie data into the Google Sheet. Let's go!", 0, 0, 2);
 
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
-
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
 
                     DisplayMessage("warning", "Looking through sheet data for missing data... ");
-                    InputMovieData(movieData, sheetVariables);
+                    InputMovieData(movieData, movieSheetVariables);
                     DisplayMessage("success", "Done", 2);
                     DisplayMessage("warning", "Now looking through sheet data for missing cast... ");
-                    InputMovieCredits(movieData, sheetVariables);
+                    InputMovieCredits(movieData, movieSheetVariables);
                     DisplayMessage("success", "Done", 2);
                     DisplayMessage("warning", "Now looking through sheet data for auto populated data... ");
                     do
                     {
-                        if (CopyAutoPopulatedData(movieData, sheetVariables))
+                        if (CopyAutoPopulatedData(movieData, movieSheetVariables))
                         {
                             DisplayMessage("warning", "There is still data loading.");
                             DisplayMessage("info", "We will try again in 5 minutes.");
                             Countdown(300);
-                            movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+                            movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
                             DisplayMessage("info", "Let's try again.");
                         } else
                         {
@@ -1465,150 +1282,71 @@ namespace SheetsQuickstart
                 }
                 else if (choice.Equals(insertMissingCastMembers))
                 {
-                    Type("Insert missing movie cast into the Google Sheet. Let's go!", 0, 0, 1);
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1); // Simply the row number we are on, to better help writing back to the Sheet.
-                    sheetVariables.Add("TMDB ID", -1); // The TMDB ID to input into the sheet.
-                    sheetVariables.Add("Cast", -1); // The movie Cast to input into the sheet.
-                    sheetVariables.Add("IMDB Title", -1); // The IMDB Title to display to the logs.
+                    Type("Insert missing movie cast into the Google Sheet. Let's go!", 0, 0, 2);
 
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
-
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
 
                     DisplayMessage("warning", "Looking through sheet data for missing cast... ");
-                    InputMovieCredits(movieData, sheetVariables);
+                    InputMovieCredits(movieData, movieSheetVariables);
                     DisplayMessage("success", "Done");
-
                 }
                 else if (choice.Equals(updateMovieDataChoice))
                 {
-                    Type("Insert missing and update movie data into the Google Sheet. Let's go!", 0, 0, 1);
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1); // Simply the row number we are on, to better help writing back to the Sheet.
-                    sheetVariables.Add("TMDB ID", -1); // The TMDB ID to input into the sheet.
-                    sheetVariables.Add("TMDB Rating", -1); // The TMDB Rating to input into the sheet.
-                    sheetVariables.Add("Plot", -1); // The movie plot to input into the sheet.
-                    sheetVariables.Add("IMDB ID", -1); // The IMDB ID to grab the movie data from the TMDB API.
-                    sheetVariables.Add("IMDB Title", -1);
-                    sheetVariables.Add(QUICK_CREATE, -1); // Used to mark which movie plot was updated and needs the NFO file updated.
+                    Type("Insert missing and update movie data into the Google Sheet. Let's go!", 0, 0, 2);
 
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
-
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
 
                     DisplayMessage("warning", "Looking through sheet data to update data... ");
-                    InputMovieData(movieData, sheetVariables, true);
+                    InputMovieData(movieData, movieSheetVariables, true);
                     DisplayMessage("success", "Done");
-
                 }
                 else if (choice.Equals(insertMissingTmdbIdsChoice)) // Insert TMDB IDs into the Google Sheet.
                 {
-                    Type("Insert missing TMDB IDs into the Google Sheet. Let's go!", 0, 0, 1);
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add("TMDB ID", -1); // The TMDB ID to input into the sheet.
-                    sheetVariables.Add("IMDB ID", -1); // The IMDB ID to grab the movie data from the TMDB API.
-                    sheetVariables.Add("IMDB Title", -1); // Used to print out if the write was successfull or not.
+                    Type("Insert missing TMDB IDs into the Google Sheet. Let's go!", 0, 0, 2);
 
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
 
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    InputTmdbId(movieData, sheetVariables, 1);
-
+                    InputTmdbId(movieData, movieSheetVariables, 1);
                 }
                 else if (choice.Equals(insertAndOverwriteTmdbIdsChoice)) // Insert TMDB IDs into the Google Sheet.
                 {
-                    Type("Insert missing AND overwrite TMDB IDs into the Google Sheet. Let's go!", 0, 0, 1);
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add("TMDB ID", -1); // The TMDB ID to input into the sheet.
-                    sheetVariables.Add("IMDB ID", -1); // The IMDB ID to grab the movie data from the TMDB API.
-                    sheetVariables.Add("IMDB Title", -1); // Used to print out if the write was successfull or not.
+                    Type("Insert missing AND overwrite TMDB IDs into the Google Sheet. Let's go!", 0, 0, 2);
 
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
 
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    InputTmdbId(movieData, sheetVariables, 2);
-
+                    InputTmdbId(movieData, movieSheetVariables, 2);
                 }
                 else if (choice.Equals("12")) // Move kids movies.
                 {
-                    Type("Move kids movies. Let's go!", 0, 0, 1);
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add("Kids", -1); // Check if movie is marked with an "X" to move accordingly.
-                    sheetVariables.Add("Ownership", -1); // We will use this column to check if it is a movie from Melanie because that changes the folder structure a lot.
-                    sheetVariables.Add(DIRECTORY, -1); // The location of the movie's directory.
-                    sheetVariables.Add(STATUS, -1); // If the first character is an "X" then we don't need to worry about looking for the movie.
-                    sheetVariables.Add("Movie Letter", -1); // Use this to replace \Kids Movies\ and vice versa.
+                    Type("Move kids movies. Let's go!", 0, 0, 2);
 
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
 
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    MoveKidsMovies(movieData, sheetVariables);
-
+                    MoveKidsMovies(movieData, movieSheetVariables);
                 }
                 else if (choice.Equals(copyMovieFilesToDestinationChoice)) // Copy movies.
                 {
-                    Type("Copy movies. Let's go!", 0, 0, 1);
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add("Cindy", -1); // Check if movie is marked with an "y" to move accordingly.
-                    sheetVariables.Add("Dave", -1); // Check if movie is marked with an "y" to move accordingly.
-                    sheetVariables.Add(DIRECTORY, -1); // The location of the movie's directory.
-                    sheetVariables.Add(CLEAN_TITLE, -1); // Concatenate the Clean Title to the Directory to save the NFO File.
-                    sheetVariables.Add(STATUS, -1); // If the first character is an "X" then we don't need to worry about looking for the movie.
-                    sheetVariables.Add("Movie Letter", -1); // The movie letter where the movie will reside on the hard drive we are copying to.e.
-                    sheetVariables.Add("Kids", -1); // The movie letter where the movie will reside on the hard drive we are copying to.
+                    Type("Copy movies. Let's go!", 0, 0, 2);
 
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
 
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    CopyMovieFiles(movieData, sheetVariables);
-
+                    CopyMovieFiles(movieData, movieSheetVariables);
                 }
                 else if (choice.Equals(deleteMovieFilesAtDestinationChoice)) // Delete movies from moms hard drive.
                 {
-                    Type("Delete movies. Let's go!", 0, 0, 1);
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add("Cindy", -1); // Check if movie is marked with an "y" to move accordingly.
-                    sheetVariables.Add("Dave", -1); // Check if movie is marked with an "y" to move accordingly.
-                    sheetVariables.Add(DIRECTORY, -1); // The location of the movie's directory.
-                    sheetVariables.Add(CLEAN_TITLE, -1); // Concatenate the Clean Title to the Directory to save the NFO File.
-                    sheetVariables.Add(STATUS, -1); // If the first character is an "X" then we don't need to worry about looking for the movie.
-                    sheetVariables.Add("Movie Letter", -1); // The movie letter where the movie will reside on the hard drive we are copying to.
-                    sheetVariables.Add("Kids", -1); // The movie letter where the movie will reside on the hard drive we are copying to.
+                    Type("Delete movies. Let's go!", 0, 0, 2);
 
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
 
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    DeleteMovieFiles(movieData, sheetVariables);
-
+                    DeleteMovieFiles(movieData, movieSheetVariables);
                 }
                 else if (choice.Equals("16")) // Remove movies from TMDB List.
                 {
-                    Type("Remove movies from TMDB List. Let's go!", 0, 0, 1);
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add("TMDB ID", -1); // The ID to check against the list.
-                    sheetVariables.Add(CLEAN_TITLE, -1); // To display the movie we are working with.
-                    sheetVariables.Add(STATUS, -1); // If the movie is marked as done then we can look for the movie in our list and remove it.
+                    Type("Remove movies from TMDB List. Let's go!", 0, 0, 2);
 
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
 
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    RemoveMoviesFromTmdbList(movieData, sheetVariables);
-
+                    RemoveMoviesFromTmdbList(movieData, movieSheetVariables);
                 }
                 else if (choice.Equals("44"))
                 {
@@ -1621,21 +1359,6 @@ namespace SheetsQuickstart
 
                     //Type(tmdbResponse.request_token.ToString(), 0, 0, 1);
                     Type("Authorization received.", 0, 0, 1, "Green");
-                }
-                else if (choice.Equals("17"))
-                {
-                    Type("Move Movies into new rating directory layout. Let's go!", 0, 0, 1);
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(DIRECTORY, -1); // The path to the new location.
-                    sheetVariables.Add("Old Directory", -1); // The path to the old location.
-
-                    titleRowDataRange = MOVIES_TITLE_RANGE;
-                    mainDataRange = MOVIES_DATA_RANGE;
-
-                    IList<IList<Object>> movieData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    MoveMovies(movieData, sheetVariables);
-
                 }
                 else if (choice.Equals(removeMetadataChoice))
                 {
@@ -1650,164 +1373,61 @@ namespace SheetsQuickstart
                 else if (choice.Equals(insertMissingDbDataChoice))
                 {
                     DisplayMessage("info", "Insert missing data into the DB sheet from TVDB. Let's go!");
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1); // Simply the row number we are on, to better help writing back to the Sheet.
-                    sheetVariables.Add("Series Name", -1); // The name of the series to populate if empty.
-                    sheetVariables.Add("Season Count", -1); // The number of seasons for the show.
-                    sheetVariables.Add("Continuing?", -1); // If the show is continuing or not.
-                    sheetVariables.Add("TVDB Slug", -1); // The show slug to add to the url call.
-                    sheetVariables.Add("TVDB ID", -1); // The ID of the TV Show to use for gathering episode data.
-                    sheetVariables.Add("Content Rating", -1);
-                    sheetVariables.Add("Year", -1);
 
                     var jwtToken = TvdbApiCall.TvdbApi.GetTvdbJwtKey();
 
-                    titleRowDataRange = DB_TITLE_RANGE;
-                    mainDataRange = DB_DATA_RANGE;
+                    IList<IList<Object>> dbData = CallGetData(dbSheetVariables, DB_TITLE_RANGE, DB_DATA_RANGE);
 
-                    IList<IList<Object>> dbData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    InsertMissingDbData(dbData, sheetVariables, jwtToken);
-
+                    InsertMissingDbData(dbData, dbSheetVariables, jwtToken);
                 }
                 else if (choice.Equals(updateDbSheetChoice))
                 {
                     DisplayMessage("info", "Update DB sheet info. Let's go!");
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1); // Simply the row number we are on, to better help writing back to the Sheet.
-                    sheetVariables.Add("Series Name", -1);
-                    sheetVariables.Add("Season Count", -1); // The number of seasons for the show.
-                    sheetVariables.Add("Continuing?", -1); // If the show is continuing or not.
-                    sheetVariables.Add("TVDB Slug", -1); // The show slug to add to the url call.
-                    sheetVariables.Add("TVDB ID", -1); // The ID of the TV Show to use for gathering episode data.
 
                     var jwtToken = TvdbApiCall.TvdbApi.GetTvdbJwtKey();
 
-                    titleRowDataRange = DB_TITLE_RANGE;
-                    mainDataRange = DB_DATA_RANGE;
+                    IList<IList<Object>> dbData = CallGetData(dbSheetVariables, DB_TITLE_RANGE, DB_DATA_RANGE);
 
-                    IList<IList<Object>> dbData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    UpdateDbData(dbData, sheetVariables, jwtToken);
+                    UpdateDbData(dbData, dbSheetVariables, jwtToken);
                 }
                 else if (choice.Equals(insertMissingCombinedEpisodesChoice))
                 {
                     DisplayMessage("info", "Insert missing data into the Combined Episodes sheet from TVDB. Let's go!");
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1); // Simply the row number we are on, to better help writing back to the Sheet.
-                    sheetVariables.Add("TVDB ID", -1); // The ID of the TV Show to use for gathering episode data.
-                    sheetVariables.Add("Episode 1 Season", -1); // The season number for the first episode.
-                    sheetVariables.Add("Episode 1 No.", -1); // The episode number for the first episode.
-                    sheetVariables.Add("Episode 1 Plot", -1); // The plot for the first episode.
-                    sheetVariables.Add("Episode 2 Season", -1); // The season number for the second episode.
-                    sheetVariables.Add("Episode 2 No.", -1); // The episode number for the second episode.
-                    sheetVariables.Add("Episode 2 Plot", -1); // The plot for the second episode.
-                    sheetVariables.Add("Show Title", -1); // Simply the title to the show.
 
                     var jwtToken = TvdbApiCall.TvdbApi.GetTvdbJwtKey();
 
-                    titleRowDataRange = COMBINED_EPISODES_TITLE_RANGE;
-                    mainDataRange = COMBINED_EPISODES_DATA_RANGE;
+                    IList<IList<Object>> dbData = CallGetData(combinedEpisodeSheetVariables, COMBINED_EPISODES_TITLE_RANGE, COMBINED_EPISODES_DATA_RANGE);
 
-                    IList<IList<Object>> dbData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    InsertMissingCombinedEpisodeData(dbData, sheetVariables, jwtToken);
+                    InsertMissingCombinedEpisodeData(dbData, combinedEpisodeSheetVariables, jwtToken);
                 }
                 else if (choice.Equals(insertMissingSeveralCombinedEpisodesChoice))
                 {
                     DisplayMessage("info", "Insert missing data into the Several Combined Episodes sheet from TVDB. Let's go!");
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1); // Simply the row number we are on, to better help writing back to the Sheet.
-                    sheetVariables.Add("TVDB ID", -1); // The ID of the TV Show to use for gathering episode data.
-                    sheetVariables.Add("Series Name", -1); // The name of the series.
-                    sheetVariables.Add("Episode 1 Season", -1); // The season number for the first episode.
-                    sheetVariables.Add("Episode 1 No.", -1); // The episode number for the first episode.
-                    sheetVariables.Add("Episode 1 Plot", -1); // The plot for the first episode.
-                    sheetVariables.Add("Episode 1 Title", -1); // The title for the first episode.
-                    sheetVariables.Add("Episode 2 Season", -1);
-                    sheetVariables.Add("Episode 2 No.", -1);
-                    sheetVariables.Add("Episode 2 Plot", -1);
-                    sheetVariables.Add("Episode 2 Title", -1);
-                    sheetVariables.Add("Episode 3 Season", -1);
-                    sheetVariables.Add("Episode 3 No.", -1);
-                    sheetVariables.Add("Episode 3 Plot", -1);
-                    sheetVariables.Add("Episode 3 Title", -1);
-                    sheetVariables.Add("Episode 4 Season", -1);
-                    sheetVariables.Add("Episode 4 No.", -1);
-                    sheetVariables.Add("Episode 4 Plot", -1);
-                    sheetVariables.Add("Episode 4 Title", -1);
-                    sheetVariables.Add("Episode 5 Season", -1);
-                    sheetVariables.Add("Episode 5 No.", -1);
-                    sheetVariables.Add("Episode 5 Plot", -1);
-                    sheetVariables.Add("Episode 5 Title", -1);
-                    sheetVariables.Add("Episode 6 Season", -1);
-                    sheetVariables.Add("Episode 6 No.", -1);
-                    sheetVariables.Add("Episode 6 Plot", -1);
-                    sheetVariables.Add("Episode 6 Title", -1);
-                    sheetVariables.Add("Episode 7 Season", -1);
-                    sheetVariables.Add("Episode 7 No.", -1);
-                    sheetVariables.Add("Episode 7 Plot", -1);
-                    sheetVariables.Add("Episode 7 Title", -1);
-                    sheetVariables.Add("Episode 8 Season", -1);
-                    sheetVariables.Add("Episode 8 No.", -1);
-                    sheetVariables.Add("Episode 8 Plot", -1);
-                    sheetVariables.Add("Episode 8 Title", -1);
-                    sheetVariables.Add("Episode 9 Season", -1);
-                    sheetVariables.Add("Episode 9 No.", -1);
-                    sheetVariables.Add("Episode 9 Plot", -1);
-                    sheetVariables.Add("Episode 9 Title", -1);
-                    sheetVariables.Add("Episode 10 Season", -1);
-                    sheetVariables.Add("Episode 10 No.", -1);
-                    sheetVariables.Add("Episode 10 Plot", -1);
-                    sheetVariables.Add("Episode 10 Title", -1);
 
                     var jwtToken = TvdbApiCall.TvdbApi.GetTvdbJwtKey();
 
-                    titleRowDataRange = SEVERAL_COMBINED_EPISODES_TITLE_RANGE;
-                    mainDataRange = SEVERAL_COMBINED_EPISODES_DATA_RANGE;
+                    IList<IList<Object>> dbData = CallGetData(severalCombinedSheetVariables, SEVERAL_COMBINED_EPISODES_TITLE_RANGE, SEVERAL_COMBINED_EPISODES_DATA_RANGE);
 
-                    IList<IList<Object>> dbData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    InsertMissingSeveralCombinedEpisodeData(dbData, sheetVariables, jwtToken);
+                    InsertMissingSeveralCombinedEpisodeData(dbData, severalCombinedSheetVariables, jwtToken);
                 }
                 else if (choice.Equals(insertMissingEpisodeDataChoice))
                 {
-                    DisplayMessage("info", "Insert missing data into the Episodes sheet from TVDB. Let's go!");
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1); // Simply the row number we are on, to better help writing back to the Sheet.
-                    sheetVariables.Add("Original Name", -1);
+                    Type("This method is dead...");
+                    // DisplayMessage("info", "Insert missing data into the Episodes sheet from TVDB. Let's go!");
 
-                    titleRowDataRange = RENAME_EPISODES_TITLE_RANGE;
-                    mainDataRange = RENAME_EPISODES_DATA_RANGE;
+                    // IList<IList<Object>> dbData = CallGetData(renameEpisodesSheetVariables, RENAME_EPISODES_TITLE_RANGE, RENAME_EPISODES_DATA_RANGE);
 
-                    IList<IList<Object>> dbData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    InsertEpisodesIntoRenameEpisodesSheet(dbData, sheetVariables);
+                    // InsertEpisodesIntoRenameEpisodesSheet(dbData, renameEpisodesSheetVariables);
                 }
                 else if (choice.Equals(updateCombinedEpisodesChoice))
                 {
                     DisplayMessage("info", "Update data in the Combined Episodes sheet from TVDB. Let's go!");
-                    // A dictionary to hold the columns we need to find.
-                    sheetVariables.Add(ROW_NUM, -1); // Simply the row number we are on, to better help writing back to the Sheet.
-                    sheetVariables.Add("TVDB ID", -1); // The ID of the TV Show to use for gathering episode data.
-                    sheetVariables.Add("Episode 1 Season", -1); // The season number for the first episode.
-                    sheetVariables.Add("Episode 1 No.", -1); // The episode number for the first episode.
-                    sheetVariables.Add("Episode 1 Plot", -1); // The plot for the first episode.
-                    sheetVariables.Add("Lock Plot 1", -1); // Marks if the plot for the first episode is locked (i.e. I manually changed the TVDB plot and don't want it overwritten).
-                    sheetVariables.Add("Episode 2 Season", -1); // The season number for the second episode.
-                    sheetVariables.Add("Episode 2 No.", -1); // The episode number for the second episode.
-                    sheetVariables.Add("Episode 2 Plot", -1); // The plot for the second episode.
-                    sheetVariables.Add("Lock Plot 2", -1); // Marks if the plot for the second episode is locked (i.e. I manually changed the TVDB plot and don't want it overwritten).
-                    sheetVariables.Add("Show Title", -1); // Simply the title to the show.
 
                     var jwtToken = TvdbApiCall.TvdbApi.GetTvdbJwtKey();
 
-                    titleRowDataRange = COMBINED_EPISODES_TITLE_RANGE;
-                    mainDataRange = COMBINED_EPISODES_DATA_RANGE;
+                    IList<IList<Object>> dbData = CallGetData(combinedEpisodeSheetVariables, COMBINED_EPISODES_TITLE_RANGE, COMBINED_EPISODES_DATA_RANGE);
 
-                    IList<IList<Object>> dbData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                    UpdateCombinedEpisodeData(dbData, sheetVariables, jwtToken);
+                    UpdateCombinedEpisodeData(dbData, combinedEpisodeSheetVariables, jwtToken);
                 }
                 else if (choice.Equals(writeToCombinedEpisodesChoice))
                 {
@@ -1817,20 +1437,13 @@ namespace SheetsQuickstart
 
                     if (directory != "0")
                     {
-                        // A dictionary to hold the columns we need to find.
-                        sheetVariables.Add(ROW_NUM, -1); // Simply the row number we are on, to better help writing back to the Sheet.
-                        sheetVariables.Add("Combined Episode Name", -1); // The name of the file when recorded.
-
                         string[] fileEntries = Directory.GetFiles(directory); // Gather ALL files from the directory.
 
                         ArrayList videoFiles = GrabMovieFiles(fileEntries); // Now filter out anything that isn't a video file.
 
-                        titleRowDataRange = COMBINED_EPISODES_TITLE_RANGE;
-                        mainDataRange = COMBINED_EPISODES_DATA_RANGE;
+                        IList<IList<Object>> sheetData = CallGetData(combinedEpisodeSheetVariables, COMBINED_EPISODES_TITLE_RANGE, COMBINED_EPISODES_DATA_RANGE);
 
-                        IList<IList<Object>> sheetData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                        WriteToSheetColumn(videoFiles, sheetData, "Combined Episodes", Convert.ToInt16(sheetVariables[ROW_NUM]), Convert.ToInt16(sheetVariables["Combined Episode Name"]));
+                        WriteToSheetColumn(videoFiles, sheetData, "Combined Episodes", Convert.ToInt16(combinedEpisodeSheetVariables[ROW_NUM]), Convert.ToInt16(combinedEpisodeSheetVariables["Combined Episode Name"]));
                     }
                 }
                 else if (choice.Equals(writeToSeveralCombinedEpisodesChoice))
@@ -1841,20 +1454,13 @@ namespace SheetsQuickstart
 
                     if (directory != "0")
                     {
-                        // A dictionary to hold the columns we need to find.
-                        sheetVariables.Add(ROW_NUM, -1); // Simply the row number we are on, to better help writing back to the Sheet.
-                        sheetVariables.Add("Combined Episode Name", -1); // The name of the file when recorded.
-
                         string[] fileEntries = Directory.GetFiles(directory); // Gather ALL files from the directory.
 
                         ArrayList videoFiles = GrabMovieFiles(fileEntries); // Now filter out anything that isn't a video file.
 
-                        titleRowDataRange = SEVERAL_COMBINED_EPISODES_TITLE_RANGE;
-                        mainDataRange = SEVERAL_COMBINED_EPISODES_DATA_RANGE;
+                        IList<IList<Object>> sheetData = CallGetData(severalCombinedSheetVariables, SEVERAL_COMBINED_EPISODES_TITLE_RANGE, SEVERAL_COMBINED_EPISODES_DATA_RANGE);
 
-                        IList<IList<Object>> sheetData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                        WriteToSheetColumn(videoFiles, sheetData, "Several Combined Episodes", Convert.ToInt16(sheetVariables[ROW_NUM]), Convert.ToInt16(sheetVariables["Combined Episode Name"]));
+                        WriteToSheetColumn(videoFiles, sheetData, "Several Combined Episodes", Convert.ToInt16(severalCombinedSheetVariables[ROW_NUM]), Convert.ToInt16(severalCombinedSheetVariables["Combined Episode Name"]));
                     }
                 }
                 else if (choice.Equals(writeVideoFileNamesToYoutubeSheet))
@@ -1864,20 +1470,13 @@ namespace SheetsQuickstart
 
                     if (directory != "0")
                     {
-                        // A dictionary to hold the columns we need to find.
-                        sheetVariables.Add(ROW_NUM, -1); // Simply the row number we are on, to better help writing back to the Sheet.
-                        sheetVariables.Add(CLEAN_TITLE, -1); // The name of the file when recorded.
-
                         string[] fileEntries = Directory.GetFiles(directory); // Gather ALL files from the directory.
 
                         ArrayList videoFiles = GrabMovieFiles(fileEntries); // Now filter out anything that isn't a video file.
 
-                        titleRowDataRange = YOUTUBE_TITLE_RANGE;
-                        mainDataRange = YOUTUBE_DATA_RANGE;
+                        IList<IList<Object>> sheetData = CallGetData(youtubeSheetVariables, YOUTUBE_TITLE_RANGE, YOUTUBE_DATA_RANGE);
 
-                        IList<IList<Object>> sheetData = CallGetData(sheetVariables, titleRowDataRange, mainDataRange);
-
-                        WriteToSheetColumn(videoFiles, sheetData, "YouTube", Convert.ToInt16(sheetVariables[ROW_NUM]), Convert.ToInt16(sheetVariables[CLEAN_TITLE]));
+                        WriteToSheetColumn(videoFiles, sheetData, "YouTube", Convert.ToInt16(youtubeSheetVariables[ROW_NUM]), Convert.ToInt16(youtubeSheetVariables[CLEAN_TITLE]));
                     }
                 }
 
