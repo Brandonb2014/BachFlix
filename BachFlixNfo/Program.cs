@@ -160,7 +160,8 @@ namespace SheetsQuickstart
             changeTheSeason,
             chosenDirectory,
             searchYoutubeAndDownloadMovieTrailersChoice,
-            downloadMovieTrailersChoice;
+            downloadMovieTrailersChoice,
+            changeEpisodesIntoTwoPartsChoice;
 
         static string fileSize;
         static long fileSizeBytes;
@@ -231,12 +232,6 @@ namespace SheetsQuickstart
             const string NFO_FILE_CREATION_COLOR = "DarkGreen";
             Type("");
             Type("--- NFO File Creation ---", 0, 0, 1, NFO_FILE_CREATION_COLOR);
-            missingMovieNfoFilesChoice = "n1";
-            Type(missingMovieNfoFilesChoice + "- Missing Movie NFO Files", 0, 0, 1, NFO_FILE_CREATION_COLOR);
-            overwriteAllMovieNfoFilesChoice = "n1o";
-            Type(overwriteAllMovieNfoFilesChoice + "- Overwrite ALL Movie NFO Files", 0, 0, 1, NFO_FILE_CREATION_COLOR);
-            selectedMovieNfoFilesChoice = "n1s";
-            Type(selectedMovieNfoFilesChoice + "- Selected Movie NFO Files", 0, 0, 1, NFO_FILE_CREATION_COLOR);
             missingCombinedEpisodeNfoFilesChoice = "n2";
             Type(missingCombinedEpisodeNfoFilesChoice + "- Create missing NFO files for Combined TV Show episodes.", 0, 0, 1, NFO_FILE_CREATION_COLOR);
             missingSeveralCombinedEpisodeNfoFilesChoice = "n6";
@@ -253,10 +248,6 @@ namespace SheetsQuickstart
             Type(overwriteAllFitnessVideoNfoFilesChoice + "- Overwrite ALL Fitness Video NFO Files", 0, 0, 1, NFO_FILE_CREATION_COLOR);
             selectedFitnessVideoNfoFilesChoice = "n4s";
             Type(selectedFitnessVideoNfoFilesChoice + "- Selected Fitness Video NFO Files", 0, 0, 1, NFO_FILE_CREATION_COLOR);
-            missingTvShowNfoFilesChoice = "n7";
-            Type(missingTvShowNfoFilesChoice + "- Missing TV Show NFO Files", 0, 0, 1, NFO_FILE_CREATION_COLOR);
-            overwriteAllTvShowNfoFilesChoice = "n7o";
-            Type(overwriteAllTvShowNfoFilesChoice + "- Overwrite ALL TV Show NFO Files", 0, 0, 1, NFO_FILE_CREATION_COLOR);
 
             const string CONVERT_FILES_COLOR = "DarkCyan";
             Type("");
@@ -292,6 +283,12 @@ namespace SheetsQuickstart
             Type("");
             Type("--- Update Google Sheet ---", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
             Type("-- Movies Sheet", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
+            missingMovieNfoFilesChoice = "n1";
+            Type(missingMovieNfoFilesChoice + "- Missing Movie NFO Files", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
+            overwriteAllMovieNfoFilesChoice = "n1o";
+            Type(overwriteAllMovieNfoFilesChoice + "- Overwrite ALL Movie NFO Files", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
+            selectedMovieNfoFilesChoice = "n1s";
+            Type(selectedMovieNfoFilesChoice + "- Selected Movie NFO Files", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
             insertMissingMovieDataChoice = "10";
             Type(insertMissingMovieDataChoice + "- Insert movie data into the Google Sheet (plot, rating, & TMDB ID).", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
             repeatInsertMissingMovieDataChoice = "10r";
@@ -313,7 +310,7 @@ namespace SheetsQuickstart
             clearSelectedRowInMoviesSheet = "51";
             Type(clearSelectedRowInMoviesSheet + "- Clear the data in selected rows.", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
             clearSelectedRowInMoviesSheetAndAddToSkipList = "51b";
-            Type(clearSelectedRowInMoviesSheetAndAddToSkipList + "- Clear the data in selected rows.", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
+            Type(clearSelectedRowInMoviesSheetAndAddToSkipList + "- Clear the data in selected rows & add the movie to the skip list.", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
             addSizeOfMovieDirectories = "52";
             Type(addSizeOfMovieDirectories + "- Add the size of Movie directories to the Movies Sheet.", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
             overwriteSizeOfMovieDirectories = "52o";
@@ -322,6 +319,10 @@ namespace SheetsQuickstart
 
             Type("");
             Type("-- DB Sheet", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
+            missingTvShowNfoFilesChoice = "n7";
+            Type(missingTvShowNfoFilesChoice + "- Missing TV Show NFO Files", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
+            overwriteAllTvShowNfoFilesChoice = "n7o";
+            Type(overwriteAllTvShowNfoFilesChoice + "- Overwrite ALL TV Show NFO Files", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
             addSizeOfTvShowDirectories = "24";
             Type(addSizeOfTvShowDirectories + "- Add the size of the TV Shows directories to the DB Sheet.", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
             overwriteSizeOfTvShowDirectories = "24o";
@@ -405,6 +406,8 @@ namespace SheetsQuickstart
             Type(searchYoutubeAndDownloadMovieTrailersChoice + "- Search for and download movie trailers from YouTube. (This eats up the YouTube API quota very fast, use sparingly)", 0, 0, 1, MISC_COLOR);
             downloadMovieTrailersChoice = "50";
             Type(downloadMovieTrailersChoice + "- Download movies from YouTube using the YouTube IDs in the Google sheet", 0, 0, 1, MISC_COLOR);
+            changeEpisodesIntoTwoPartsChoice = "53";
+            Type(changeEpisodesIntoTwoPartsChoice + "- Change the episodes in a folder to combined episodes. (i.e. S01E01 becomes S01E01-E02)", 0, 0, 1, MISC_COLOR);
 
             return Console.ReadLine().Split(',');
 
@@ -430,11 +433,11 @@ namespace SheetsQuickstart
                     { "IMDB Title", -1 },
                     { "IMDB URL", -1 },
                     { ISO_CH_NUM, -1 },
-                    { ISO_INPUT, -1 },
                     { ISO_TITLE_NUM, -1 },
                     { "Kids", -1 },
                     { "Movie Has Trailer", -1 },
                     { "Movie Letter", -1 },
+                    { "MPAA", -1 },
                     { NFO_BODY, -1 },
                     { "Ownership", -1 },
                     { "Plot", -1 },
@@ -996,10 +999,11 @@ namespace SheetsQuickstart
                 }
                 else if (choice.Equals(clearSelectedRowInMoviesSheetAndAddToSkipList))
                 {
-                    DisplayMessage("info", "Clear the data from selected rows. Let's go!");
+                    DisplayMessage("info", "This is still under construction. Pick something else");
+                    //DisplayMessage("info", "Clear the data from selected rows. Let's go!");
 
-                    IList<IList<Object>> movieData = CallGetData(clearableMovieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
-                    ClearSelectedRowData(movieData, clearableMovieSheetVariables);
+                    //IList<IList<Object>> movieData = CallGetData(clearableMovieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                    //ClearSelectedRowData(movieData, clearableMovieSheetVariables);
                 }
                 else if (choice.Equals(moveFolderContentsChoice))
                 {
@@ -1044,7 +1048,7 @@ namespace SheetsQuickstart
                             string[] fileEntries = Directory.GetFiles(directory);
                             Type("DONE", 0, 0, 2, "Green");
 
-                            DisplayMessage("question", "Now, what season would you like these changed to?");
+                            DisplayMessage("question", "Now, what season would you like these changed to? (Number only including the leading zero i.e. 01)");
                             string newSeasonNumber = RemoveCharFromString(Console.ReadLine(), '"');
 
                             // Use a regular expression to find and replace the season number
@@ -1058,6 +1062,60 @@ namespace SheetsQuickstart
                             }
                             Type("DONE", 0, 0, 1, "Green");
                         }
+                    }
+                }
+                else if (choice.Equals(changeEpisodesIntoTwoPartsChoice))
+                {
+                    DisplayMessage("info", "Combine episodes in selected folder, let's go!", 2);
+
+                    var directory = AskForDirectory("Give me the directory full of TV show episodes.");
+                    if (directory != "0")
+                    {
+                        // Grab all files in the directory.
+                        Type("Grabbing all files... ", 0, 0, 0, "Yellow");
+                        string[] fileEntries = Directory.GetFiles(directory, "*.mp4");
+                        Type("DONE", 0, 0, 2, "Green");
+
+                        // Use a regular expression to find and replace the season number
+                        string pattern = @"S(\d{2})E(\d{2})";
+                        int startingEpisode = 1;
+
+                        foreach (var originalFile in fileEntries)
+                        {
+                            string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(originalFile);
+
+                            string searchString = $"*{fileNameWithoutExtension}*";
+
+                            string[] filteredEntries = Directory.GetFiles(directory, searchString);
+
+                            foreach (var filteredFile in filteredEntries)
+                            {
+                                // Use regex to check if the file name matches the expected pattern
+                                Match match = Regex.Match(filteredFile, pattern);
+
+                                if (match.Success)
+                                {
+                                    // Extract the season number
+                                    string seasonNumber = match.Groups[1].Value;
+
+                                    // Create the new episode numbers
+                                    string replacement = $"S{seasonNumber}E{startingEpisode:D2}-E{startingEpisode + 1:D2}";
+
+                                    // Combine the folder path with the new file name
+                                    string newFile = Regex.Replace(filteredFile, pattern, replacement);
+
+                                    // Rename the file
+                                    File.Move(filteredFile, newFile);
+                                    Console.WriteLine($"Renamed:");
+                                    Console.WriteLine(Path.GetFileName(filteredFile));
+                                    Console.WriteLine(Path.GetFileName(newFile));
+                                    Console.WriteLine();
+                                }
+                            }
+                            // Increment the starting episode by 2 for the next file
+                            startingEpisode += 2;
+                        }
+                        Type("DONE", 0, 0, 1, "Green");
                     }
                 }
                 else if (choice.Equals(searchYoutubeAndDownloadMovieTrailersChoice))
@@ -1252,7 +1310,7 @@ namespace SheetsQuickstart
                 else if (choice.Equals(repeatInsertMissingMovieDataChoice))
                 {
                     bool repeatDataCall = true;
-                    Type("Insert missing movie data into the Google Sheet. Let's go!", 0, 0, 2);
+                    Type("Repeat insert missing movie data into the Google Sheet. Let's go!", 0, 0, 2);
 
                     IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
 
@@ -5678,6 +5736,11 @@ namespace SheetsQuickstart
                     ArrayList providers = new ArrayList();
                     if (tmdbResponse != null && tmdbResponse.GetType() != typeof(string) && tmdbResponse?.results != null && tmdbResponse.results.Count != 0)
                     {
+                        string[] skipProviders = { 
+                            "Paramount Plus Apple TV Channel",
+                            "Paramount+ Roku Premium Channel",
+                            "Paramount+ Amazon Channel"
+                        };
                         var flatrateResponse = tmdbResponse?.results?.US?.flatrate;
                         var freeResponse = tmdbResponse?.results?.US?.free;
 
@@ -5685,7 +5748,11 @@ namespace SheetsQuickstart
                         {
                             foreach (var streamer in flatrateResponse)
                             {
-                                providers.Add(streamer.provider_name);
+                                string providerName = streamer.provider_name;
+                                if (!skipProviders.Contains(providerName.Trim()))
+                                {
+                                    providers.Add(providerName.Trim());
+                                }
                             }
                         }
 
@@ -5693,7 +5760,11 @@ namespace SheetsQuickstart
                         {
                             foreach (var streamer in freeResponse)
                             {
-                                providers.Add(streamer.provider_name);
+                                string providerName = streamer.provider_name;
+                                if (!skipProviders.Contains(providerName.Trim()))
+                                {
+                                    providers.Add(providerName.Trim());
+                                }
                             }
                         }
 
