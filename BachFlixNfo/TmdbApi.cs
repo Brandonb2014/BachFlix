@@ -7,9 +7,13 @@ namespace TmdbApiCall
 {
     class TmdbApi
     {
-        private const string TMDB_API_KEY = "5809fe4e5d491f9514343fba6087cc34";
-        private const string TMDB_LIST_ID = "122047";
-        private const string TMDB_SESSION_ID = "6d26160352e952a088ccba1004addbb7c12d4ea9";
+        private const string TMDB_API_KEY_ENV = "TMDB_API_KEY";
+        private const string TMDB_LIST_ID_ENV = "TMDB_LIST_ID";
+        private const string TMDB_SESSION_ID_ENV = "TMDB_SESSION_ID";
+
+        private static string TmdbApiKey => LocalEnvironment.GetRequired(TMDB_API_KEY_ENV);
+        private static string TmdbListId => LocalEnvironment.GetRequired(TMDB_LIST_ID_ENV);
+        private static string TmdbSessionId => LocalEnvironment.GetRequired(TMDB_SESSION_ID_ENV);
 
         /// <summary>
         /// Get the primary information about a movie.
@@ -19,7 +23,7 @@ namespace TmdbApiCall
         public static dynamic MoviesGetDetails(string ImdbId)
         {
             Thread.Sleep(250);
-            string strRestClient = "https://api.themoviedb.org/3/find/" + ImdbId + "?api_key=" + TMDB_API_KEY + "&language=en-US&external_source=imdb_id&append_to_response=videos";
+            string strRestClient = "https://api.themoviedb.org/3/find/" + ImdbId + "?api_key=" + TmdbApiKey + "&language=en-US&external_source=imdb_id&append_to_response=videos";
 
             RestClient client = new RestClient(strRestClient);
             RestRequest request = new RestRequest(Method.GET);
@@ -39,20 +43,13 @@ namespace TmdbApiCall
         {
             try
             {
-                string strRestClient = "https://api.themoviedb.org/3/movie/" + TmdbId + "?api_key=" + TMDB_API_KEY + "&language=en-US";
+                string strRestClient = "https://api.themoviedb.org/3/movie/" + TmdbId + "?api_key=" + TmdbApiKey + "&language=en-US&append_to_response=releases";
                 RestClient client = new RestClient(strRestClient);
                 RestRequest request = new RestRequest(Method.GET);
                 IRestResponse response = client.Execute(request);
-                if (response.IsSuccessful)
-                {
-                    dynamic json = JsonConvert.DeserializeObject(response.Content);
-                    return json;
-                }
-                else
-                {
-                    Program.DisplayMessage("error", response.StatusCode.ToString());
-                    return "";
-                }
+
+                dynamic json = JsonConvert.DeserializeObject(response.Content);
+                return json;
             }
             catch (System.Exception e)
             {
@@ -70,7 +67,7 @@ namespace TmdbApiCall
         public static dynamic MoviesGetCredits(string ImdbId)
         {
             Thread.Sleep(250);
-            string strRestClient = "https://api.themoviedb.org/3/movie/" + ImdbId + "/credits?api_key=" + TMDB_API_KEY + "&language=en-US";
+            string strRestClient = "https://api.themoviedb.org/3/movie/" + ImdbId + "/credits?api_key=" + TmdbApiKey + "&language=en-US";
 
             RestClient client = new RestClient(strRestClient);
             RestRequest request = new RestRequest(Method.GET);
@@ -94,7 +91,60 @@ namespace TmdbApiCall
         public static dynamic MoviesGetWatchProviders(string TmdbId)
         {
             Thread.Sleep(250);
-            string strRestClient = "https://api.themoviedb.org/3/movie/" + TmdbId + "/watch/providers?api_key=" + TMDB_API_KEY + "&locale=US";
+            string strRestClient = "https://api.themoviedb.org/3/movie/" + TmdbId + "/watch/providers?api_key=" + TmdbApiKey + "&locale=US";
+
+            RestClient client = new RestClient(strRestClient);
+            RestRequest request = new RestRequest(Method.GET);
+            IRestResponse response = client.Execute(request);
+            if (response.IsSuccessful)
+            {
+                dynamic json = JsonConvert.DeserializeObject(response.Content);
+                return json;
+            }
+            else
+            {
+                return response.Content;
+            }
+        }
+
+        /// <summary>
+        /// Get the TV show watch providers (Streaming services) from a TVDB ID.
+        /// </summary>
+        /// <param name="TvdbId"></param>
+        /// <returns></returns>
+        public static dynamic TvGetWatchProvidersByTvdbId(string TvdbId)
+        {
+            Thread.Sleep(250);
+            string strRestClient = "https://api.themoviedb.org/3/find/" + TvdbId + "?api_key=" + TmdbApiKey + "&language=en-US&external_source=tvdb_id";
+
+            RestClient client = new RestClient(strRestClient);
+            RestRequest request = new RestRequest(Method.GET);
+            IRestResponse response = client.Execute(request);
+            if (response.IsSuccessful)
+            {
+                dynamic json = JsonConvert.DeserializeObject(response.Content);
+                if (json != null && json.tv_results != null && json.tv_results.Count > 0)
+                {
+                    return TvGetWatchProviders(json.tv_results[0].id.ToString());
+                }
+
+                return "";
+            }
+            else
+            {
+                return response.Content;
+            }
+        }
+
+        /// <summary>
+        /// Get the TV show watch providers (Streaming services).
+        /// </summary>
+        /// <param name="TmdbId"></param>
+        /// <returns></returns>
+        public static dynamic TvGetWatchProviders(string TmdbId)
+        {
+            Thread.Sleep(250);
+            string strRestClient = "https://api.themoviedb.org/3/tv/" + TmdbId + "/watch/providers?api_key=" + TmdbApiKey + "&locale=US";
 
             RestClient client = new RestClient(strRestClient);
             RestRequest request = new RestRequest(Method.GET);
@@ -118,7 +168,7 @@ namespace TmdbApiCall
         public static dynamic MoviesGetVideos(string ImdbId)
         {
             Thread.Sleep(250);
-            string strRestClient = "https://api.themoviedb.org/3/movie/" + ImdbId + "/videos?api_key=" + TMDB_API_KEY + "&language=en-US";
+            string strRestClient = "https://api.themoviedb.org/3/movie/" + ImdbId + "/videos?api_key=" + TmdbApiKey + "&language=en-US";
 
             RestClient client = new RestClient(strRestClient);
             RestRequest request = new RestRequest(Method.GET);
@@ -142,7 +192,7 @@ namespace TmdbApiCall
             Program.Type("episodeNum: " + episodeNum, 0, 0, 1);
             try
             {
-                string strRestClient = "https://api.themoviedb.org/3/tv/" + TmdbId + "/season/" + seasonNum + "/episode/" + episodeNum + "?api_key=" + TMDB_API_KEY + "&language=en-US";
+                string strRestClient = "https://api.themoviedb.org/3/tv/" + TmdbId + "/season/" + seasonNum + "/episode/" + episodeNum + "?api_key=" + TmdbApiKey + "&language=en-US";
                 RestClient client = new RestClient(strRestClient);
                 RestRequest request = new RestRequest(Method.GET);
                 request.AddParameter("undefined", "{}", ParameterType.RequestBody);
@@ -162,7 +212,7 @@ namespace TmdbApiCall
         {
             try
             {
-                string strRestClient = "https://api.themoviedb.org/3/person/" + PersonId + "/movie_credits?api_key=" + TMDB_API_KEY + "&language = en-US";
+                string strRestClient = "https://api.themoviedb.org/3/person/" + PersonId + "/movie_credits?api_key=" + TmdbApiKey + "&language = en-US";
                 RestClient client = new RestClient(strRestClient);
                 RestRequest request = new RestRequest(Method.GET);
                 IRestResponse response = client.Execute(request);
@@ -198,7 +248,7 @@ namespace TmdbApiCall
         /// <returns></returns>
         public static dynamic ListsCheckItemStatus(string TmdbId)
         {
-            string strRestClient = "https://api.themoviedb.org/3/list/" + TMDB_LIST_ID + "/item_status?api_key=" + TMDB_API_KEY + "&movie_id=" + TmdbId;
+            string strRestClient = "https://api.themoviedb.org/3/list/" + TmdbListId + "/item_status?api_key=" + TmdbApiKey + "&movie_id=" + TmdbId;
 
             RestClient client = new RestClient(strRestClient);
             RestRequest request = new RestRequest(Method.GET);
@@ -216,7 +266,7 @@ namespace TmdbApiCall
         /// <returns></returns>
         public static dynamic ListsRemoveMovie(string TmdbId)
         {
-            string strRestClient = "https://api.themoviedb.org/3/list/" + TMDB_LIST_ID + "/remove_item?api_key=" + TMDB_API_KEY + "&session_id=" + TMDB_SESSION_ID;
+            string strRestClient = "https://api.themoviedb.org/3/list/" + TmdbListId + "/remove_item?api_key=" + TmdbApiKey + "&session_id=" + TmdbSessionId;
 
             RestClient client = new RestClient(strRestClient);
             RestRequest request = new RestRequest(Method.GET);
@@ -232,7 +282,7 @@ namespace TmdbApiCall
         /// <returns></returns>
         public static dynamic AuthenticationCreateRequestToken()
         {
-            string strRestClient = "https://api.themoviedb.org/3/authentication/token/new?api_key=" + TMDB_API_KEY;
+            string strRestClient = "https://api.themoviedb.org/3/authentication/token/new?api_key=" + TmdbApiKey;
 
             RestClient client = new RestClient(strRestClient);
             RestRequest request = new RestRequest(Method.GET);

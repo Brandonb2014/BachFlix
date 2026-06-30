@@ -12,9 +12,9 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using TmdbApiCall;
 
-namespace BachFlixNfoCall
+namespace BachFlixNfo
 {
-    class BachFlixNfo
+    public class BachFlixNfo
     {
         // If modifying these scopes, delete your previously saved credentials
         // at \BachFlixNfo\bin\Debug\token.json\Google.Apis.Auth.OAuth2.Responses.TokenResponse-user

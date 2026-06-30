@@ -1,28 +1,40 @@
-﻿using BachFlixNfoCall;
+﻿using BachFlixNfo.Features;
+using BachFlixNfo.Subtitles;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Services;
 using Google.Apis.Sheets.v4;
 using Google.Apis.Sheets.v4.Data;
 using Google.Apis.Util.Store;
+using Google.Apis.YouTube.v3;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Runtime.InteropServices;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Json;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
-using TmdbApiCall;
-using Google.Apis.YouTube.v3;
 using System.Threading.Tasks;
 using System.Xml;
-using Newtonsoft.Json.Linq;
+using TmdbApiCall;
 
 namespace SheetsQuickstart
 {
     class Program
     {
+        // Emby server settings. API key comes from the local environment.
+        private const string EMBY_SERVER_URL_ENV = "EMBY_SERVER_URL";
+        private const string EMBY_API_KEY_ENV = "EMBY_API_KEY";
+        private const string EMBY_MOVIES_LIBRARY_ID_ENV = "EMBY_MOVIES_LIBRARY_ID";
+        private const string DEFAULT_EMBY_SERVER_URL = "http://192.168.0.5:9000";
+        private const string DEFAULT_EMBY_MOVIES_LIBRARY_ID = "3";
+
         // Data ranges for each sheet.
         private const string MOVIES_TITLE_RANGE = "Movies!A2:2";
         private const string MOVIES_DATA_RANGE = "Movies!A3:22002";
@@ -45,7 +57,7 @@ namespace SheetsQuickstart
         private const string RECORDED_NAMES_TITLE_RANGE = "Recorded Names!A2:2";
         private const string RECORDED_NAMES_DATA_RANGE = "Recorded Names!A3:1102";
         private const string DB_TITLE_RANGE = "DB!A2:2";
-        private const string DB_DATA_RANGE = "DB!A3:1002";
+        private const string DB_DATA_RANGE = "DB!A3:2002";
         private const string SEVERAL_COMBINED_EPISODES_TITLE_RANGE = "Several Combined Episodes!A2:2";
         private const string SEVERAL_COMBINED_EPISODES_DATA_RANGE = "Several Combined Episodes!A3:1000";
         private const string AUTOPOULATE_ACTORS_TITLE_RANGE = "Autopopulate Actors!A2:B2";
@@ -81,11 +93,21 @@ namespace SheetsQuickstart
         static List<string> res240List = new List<string>();
         static List<string> res360List = new List<string>();
         static List<string> res480List = new List<string>();
+        static List<string> res576List = new List<string>();
         static List<string> res720List = new List<string>();
         static List<string> res1080List = new List<string>();
         static List<string> res1440List = new List<string>();
         static List<string> res2160List = new List<string>();
         static List<string> resNAList = new List<string>();
+
+        // Variables for the SRT ENG method.
+        static List<string> missingEng = new List<string>();
+        static int fileEntriesCount = 0,
+            srtEntriesCount = 0,
+            missingEngCount = 0;
+        private static readonly Regex SrtEngFlagRegex = new Regex(@"(^|[._-])eng($|[._-])", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex SrtForcedFlagRegex = new Regex(@"(^|[._-])forced($|[._-])", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex SrtLanguageTokenRegex = new Regex(@"(?<sep>[._-])(?:en(?:[-_]?us)?|som|ger|bre|nor|hat|ht|so)(?=[._-]|$)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         // The method in which to input the data into the Google Sheet.
         const int INSERT_MISSING_DATA = 1;
@@ -106,6 +128,7 @@ namespace SheetsQuickstart
             selectedFitnessVideoNfoFilesChoice,
             missingTvShowNfoFilesChoice,
             overwriteAllTvShowNfoFilesChoice,
+            selectedTvShowNfoFilesChoice,
             convertMoviesChoice,
             convertDirectoryChoice,
             convertMoviesSlowChoice,
@@ -115,6 +138,8 @@ namespace SheetsQuickstart
             convertTvShowsSlowChoice,
             convertTempTvShowsChoice,
             convertTempTVShowsSlowChoice,
+            audioCompatibilityConverterChoice,
+            audioCensorRunnerChoice,
             insertMissingMovieDataChoice,
             repeatInsertMissingMovieDataChoice,
             updateMovieDataChoice,
@@ -153,15 +178,172 @@ namespace SheetsQuickstart
             deleteJpgFiles,
             addSeasonToFolderName,
             getMovieWatchProviders,
+            getMovieWatchProvidersOfSelectedMovies,
+            getTvShowWatchProviders,
             moveFolderContentsChoice,
             getVideoResolutionChoice,
             overwriteVideoResolutionChoice,
             getDirectorySizeChoice,
             changeTheSeason,
+            resetEpisodeNumbersChoice,
+            resetEpisodeNumbersToChosenNumberChoice,
             chosenDirectory,
             searchYoutubeAndDownloadMovieTrailersChoice,
             downloadMovieTrailersChoice,
-            changeEpisodesIntoTwoPartsChoice;
+            changeEpisodesIntoTwoPartsChoice,
+            revertEpisodeCombineChoice,
+            checkSrtFileNamesChoice,
+            checkSelectedSrtFileNamesChoice,
+            fileTypeOverwriteChoice,
+            fileTypeChoice,
+            movieFilenameScannerChoice,
+            renameMoviesFromSheetChoice,
+            moveReadyVideosChoice,
+            srtScoreRunnerChoice,
+            fileHealthRunnerChoice,
+            plexPopulateRatingKeysChoice,
+            plexOverwriteRatingKeysChoice,
+            plexSyncMetadataChoice,
+            profileRequestProcessorChoice,
+            rebuildWebMoviesChoice,
+            fullMovieHealthCheck;
+
+        private static SheetsService _cachedSheetsService;
+
+        private static SheetsService GetSheetsService()
+        {
+            if (_cachedSheetsService != null)
+                return _cachedSheetsService;
+
+            UserCredential credential;
+            using (var stream = new FileStream("credentials.json", FileMode.Open, FileAccess.Read))
+            {
+                string credPath = "token.json";
+                credential = GoogleWebAuthorizationBroker.AuthorizeAsync(
+                    GoogleClientSecrets.Load(stream).Secrets,
+                    SCOPES,
+                    "user",
+                    CancellationToken.None,
+                    new FileDataStore(credPath, true)).Result;
+            }
+
+            _cachedSheetsService = new SheetsService(new BaseClientService.Initializer()
+            {
+                HttpClientInitializer = credential,
+                ApplicationName = APLICATION_NAME,
+            });
+
+            return _cachedSheetsService;
+        }
+
+        private static string GetConfigValue(string environmentVariableName, string defaultValue = "")
+        {
+            string value = Environment.GetEnvironmentVariable(environmentVariableName);
+            return string.IsNullOrWhiteSpace(value) ? defaultValue : value;
+        }
+
+        private static string GetEmbyServerUrl()
+        {
+            return GetConfigValue(EMBY_SERVER_URL_ENV, DEFAULT_EMBY_SERVER_URL);
+        }
+
+        private static string GetEmbyApiKey()
+        {
+            return GetConfigValue(EMBY_API_KEY_ENV);
+        }
+
+        private static string GetEmbyMoviesLibraryId()
+        {
+            return GetConfigValue(EMBY_MOVIES_LIBRARY_ID_ENV, DEFAULT_EMBY_MOVIES_LIBRARY_ID);
+        }
+        static Dictionary<string, int> movieSheetVariables = new Dictionary<string, int>
+        {
+            { ROW_NUM, -1 },
+            { "Special Title", -1 },
+            { STATUS, -1 },
+            { "Ownership", -1 },
+            { "Recorded Source", -1 },
+            { "StreamFab", -1 },
+            { "Possible Record Source", -1 },
+            { "Kids", -1 },
+            { "Teens", -1 },
+            { "Resolution", -1 },
+            { "File Type", -1 },
+            { "Size", -1 },
+            { "Auto Title", -1 },
+            { "IMDB Title", -1 },
+            { "Sort Title", -1 },
+            { "Auto Content Rating", -1 },
+            { "Content Rating", -1 },
+            { "IMDB URL", -1 },
+            { "TMDB Rating", -1 },
+            { "Plot", -1 },
+            { "Release Date", -1 },
+            { "Auto MPAA", -1 },
+            { "MPAA", -1 },
+            { "YouTube Trailer ID", -1 },
+            { "Movie Has Trailer", -1 },
+            { "SRT Score", -1 },
+            { "Can't Find", -1 },
+            { "Runtime", -1 },
+            { ISO_TITLE_NUM, -1 },
+            { ISO_CH_NUM, -1 },
+            { ADDITIONAL_COMMANDS, -1 },
+            { "Cast", -1 },
+            { "Poster", -1 },
+            { "TMDB ID", -1 },
+            { "Rating Key", -1 },
+            { "Movie Letter", -1 },
+            { CLEAN_TITLE, -1 },
+            { "IMDB ID", -1 },
+            { NFO_BODY, -1 },
+            { DIRECTORY, -1 },
+            { QUICK_CREATE, -1 }
+        };
+
+        static Dictionary<string, int> clearableMovieSheetVariables = new Dictionary<string, int>
+        {
+            { ROW_NUM, -1 },
+            { "Same Name", -1 },
+            { "Overflow", -1 },
+            { STATUS, -1 },
+            { "Ownership", -1 },
+            { "Recorded Source", -1 },
+            { "StreamFab", -1 },
+            { "Playon", -1 },
+            { "Removed Splashes", -1 },
+            { "Include Subtitles", -1 },
+            { "Verify Subtitles Sync", -1 },
+            { "Note", -1 },
+            { "Possible Record Source", -1 },
+            { "Special", -1 },
+            { "Kids", -1 },
+            { "Teens", -1 },
+            { "Selected Resolution", -1 },
+            { "Recorded Version", -1 },
+            { "Resolution", -1 },
+            { "Date Added", -1 },
+            { "Size", -1 },
+            { "File Type", -1 },
+            { "IMDB Title", -1 },
+            { "Sort Title", -1 },
+            { "Content Rating", -1 },
+            { "IMDB URL", -1 },
+            { "TMDB Rating", -1 },
+            { "Plot", -1 },
+            { "Release Date", -1 },
+            { "MPAA", -1 },
+            { "YouTube Trailer ID", -1 },
+            { "Movie Has Trailer", -1 },
+            { "SRT Score", -1 },
+            { "Can't Find", -1 },
+            { "Runtime", -1 },
+            { "Cast", -1 },
+            { "Poster", -1 },
+            { "TMDB ID", -1 },
+            { "Rating Key", -1 },
+            { QUICK_CREATE, -1 }
+        };
 
         static string fileSize;
         static long fileSizeBytes;
@@ -184,6 +366,404 @@ namespace SheetsQuickstart
         static readonly string SPREADSHEET_ID = "1LE9Tiz0TgcG60qeul_y9wC4j8qNLQlfKTLnAg5tgBr0";
 
         private static readonly string YOUTUBE_API_KEY = "AIzaSyBomk4BPUovSEGFGVrJGZIABVzCA1tSNKU";
+
+        // Match: "Movie Title (2010)"
+        private static readonly Regex TitleYearRegex =
+            new Regex(@"^(?<title>.+?)\s*\((?<year>\d{4})\)\s*$", RegexOptions.Compiled);
+
+        private static readonly Regex DuplicateYearRegex =
+            new Regex(@"\((\d{4})\)\s*\(\1\)\s*$", RegexOptions.Compiled);
+
+        private enum MediaKind
+        {
+            Movie,
+            Tv
+        }
+
+        private sealed class MoveItem
+        {
+            public string PcName { get; set; }
+            public string ReadyRoot { get; set; }
+            public MediaKind Kind { get; set; }
+            public string SourcePath { get; set; }
+            public string Title { get; set; }
+            public string DestinationPath { get; set; }
+
+            public MoveItem()
+            {
+                PcName = "";
+                ReadyRoot = "";
+                SourcePath = "";
+                Title = "";
+                DestinationPath = "";
+            }
+        }
+
+        private sealed class ScanSummary
+        {
+            public string PcName { get; set; }
+            public string ReadyRoot { get; set; }
+            public int MovieCount { get; set; }
+            public int TvCount { get; set; }
+
+            public ScanSummary()
+            {
+                PcName = "";
+                ReadyRoot = "";
+            }
+        }
+
+        private enum MoveKind
+        {
+            MovieItem,   // a single movie video file (+ sidecars) living in Ready/<Source>/
+            MovieFolder, // a folder with a movie video inside
+            TvShow       // a folder with subfolders (seasons)
+        }
+
+        private sealed class PlannedMove
+        {
+            public string ReadyRoot { get; set; }
+            public string RecordSource { get; set; }
+
+            public MoveKind Kind { get; set; }
+
+            // For folders (TV show / movie folder)
+            public string FolderPath { get; set; }
+            public string FolderName { get; set; }
+
+            // For MovieItem (video file + sidecars)
+            public string MovieVideoFile { get; set; } // full path to video file
+
+            public PlannedMove()
+            {
+                ReadyRoot = "";
+                RecordSource = "";
+                FolderPath = "";
+                FolderName = "";
+                MovieVideoFile = "";
+            }
+
+            public string DisplayName
+            {
+                get
+                {
+                    if (Kind == MoveKind.MovieItem && !string.IsNullOrWhiteSpace(MovieVideoFile))
+                        return Path.GetFileNameWithoutExtension(MovieVideoFile);
+                    if (!string.IsNullOrWhiteSpace(FolderName))
+                        return FolderName;
+                    return "(unknown)";
+                }
+            }
+        }
+
+        #region Disk space (UNC-safe)
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern bool GetDiskFreeSpaceEx(
+            string lpDirectoryName,
+            out ulong lpFreeBytesAvailable,
+            out ulong lpTotalNumberOfBytes,
+            out ulong lpTotalNumberOfFreeBytes);
+
+        private static bool TryGetFreePercent(string path, out double percentFree)
+        {
+            percentFree = 0;
+
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                    return false;
+
+                // GetDiskFreeSpaceEx wants a directory. If they pass a file path, normalize it.
+                string target = path;
+
+                // If it's a file, use its directory. If it's a directory, use it.
+                if (File.Exists(target))
+                    target = Path.GetDirectoryName(target);
+
+                if (string.IsNullOrWhiteSpace(target))
+                    return false;
+
+                ulong freeAvail, totalBytes, totalFree;
+                if (!GetDiskFreeSpaceEx(target, out freeAvail, out totalBytes, out totalFree))
+                    return false;
+
+                if (totalBytes == 0)
+                    return false;
+
+                percentFree = Math.Round((freeAvail / (double)totalBytes) * 100.0, 2);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Chooses a destination root based on free-space:
+        /// - If desiredRoot has >= minPercentFree (or space can't be verified), use desiredRoot.
+        /// - If desiredRoot has < minPercentFree, try fallbackRoot.
+        /// - If fallbackRoot also has < minPercentFree OR fallbackRoot can't be verified, returns false (can't move).
+        /// </summary>
+        private static bool ApplyLowSpaceReroute(
+            string desiredRoot,
+            string desiredLabel,
+            string fallbackRoot,
+            string recordSource,
+            double minPercentFree,
+            out string chosenRoot,
+            out string chosenLabel,
+            out double? desiredPercentFreeOrNull,
+            out double? fallbackPercentFreeOrNull,
+            out bool reroutedToFallback)
+        {
+            chosenRoot = desiredRoot;
+            chosenLabel = desiredLabel;
+            desiredPercentFreeOrNull = null;
+            fallbackPercentFreeOrNull = null;
+            reroutedToFallback = false;
+
+            // Check desired
+            double desiredPct;
+            bool desiredOk = TryGetFreePercent(desiredRoot, out desiredPct);
+            if (desiredOk)
+            {
+                desiredPercentFreeOrNull = desiredPct;
+
+                // Good -> use desired
+                if (desiredPct >= minPercentFree)
+                    return true;
+
+                // Low -> attempt fallback
+            }
+            else
+            {
+                // If we can't verify desired, proceed with desired (your previous behavior)
+                chosenLabel = desiredLabel + " (space unknown)";
+                return true;
+            }
+
+            // Desired is low -> check fallback
+            double fallbackPct;
+            bool fallbackOk = TryGetFreePercent(fallbackRoot, out fallbackPct);
+            if (!fallbackOk)
+            {
+                // User asked: verify fallback isn't full either.
+                // If we can't verify fallback, fail safe: don't move.
+                return false;
+            }
+
+            fallbackPercentFreeOrNull = fallbackPct;
+
+            if (fallbackPct < minPercentFree)
+            {
+                // Both are low -> can't move
+                return false;
+            }
+
+            // Fallback is OK -> reroute
+            chosenRoot = fallbackRoot;
+            chosenLabel = "Other (low space)";
+            reroutedToFallback = true;
+            return true;
+        }
+
+        #endregion
+
+        public static class DriveMapping
+        {
+            // =============================================================
+            // Single source of truth for all QuadPlex/BachFlix network paths
+            //
+            // Design goal:
+            // - You only edit ONE list of range strings when drives change.
+            // - Everything else (Start/End chars, share labels, UNC roots, scans)
+            //   is generated from those definitions.
+            // =============================================================
+
+            // ---- Server
+            public const string QUADPLEX = @"\\QUADPLEX";
+
+            // ---- Share / range definitions (EDIT THESE ONLY when you re-bucket drives)
+            //
+            // IMPORTANT:
+            // - TV shares are literally named like: "#-b", "c-d", "e-i", ...
+            //   So we derive the share name from the definition by lowercasing it.
+            // - Movie shares are literally named like: "Movies #-D", "Movies E-M", ...
+            //   So we prefix "Movies " to the definition.
+            //
+            // Examples:
+            //   If you later change "N-R" to "N-O", you update it HERE only.
+            private static readonly string[] TvRangeDefinitions =
+            {
+                "#-B",
+                "C-D",
+                "E-I",
+                "J-M",
+                "N-R",
+                "S",
+                "T-Z"
+            };
+
+            private static readonly string[] MovieRangeDefinitions =
+            {
+                "#-D",
+                "E-M",
+                "N-Z"
+            };
+
+            // ---- Misc shares / folders
+            public const string OTHER_SHARE = "Other";
+
+            public const string WORKING_AREA_FOLDER = "Working Area";
+            public const string TV_SHOWS_FOLDER = "TV Shows";
+            public const string MOVIES_FOLDER = "Movies";
+            public const string OTHER_BUS_FOLDER = "The Bus";
+
+            // Helper: build UNC paths without worrying about slashes
+            private static string Unc(params string[] parts)
+            {
+                if (parts == null || parts.Length == 0) return string.Empty;
+
+                var cleaned = new List<string>();
+                foreach (var p in parts)
+                {
+                    if (string.IsNullOrWhiteSpace(p)) continue;
+                    cleaned.Add(p.Trim().Trim('\\'));
+                }
+                if (cleaned.Count == 0) return string.Empty;
+
+                return @"\\" + string.Join(@"\\", cleaned);
+            }
+
+            private static List<LetterRange> BuildRanges(string[] definitions, Func<string, string> toShareLabel, string serverUnc, string folderUnderShare)
+            {
+                return definitions.Select(def =>
+                {
+                    var trimmed = (def ?? string.Empty).Trim();
+                    if (trimmed.Length == 0)
+                        throw new ArgumentException("Range definition cannot be empty.");
+
+                    var parts = trimmed.Split('-');
+                    char start = parts[0][0];
+                    char end = (parts.Length > 1 && parts[1].Length > 0) ? parts[1][0] : parts[0][0];
+
+                    // Share name on the server
+                    string shareLabel = toShareLabel(trimmed);
+
+                    // RootPath points at the Working Area for that share
+                    string root = Unc(serverUnc, shareLabel, folderUnderShare);
+
+                    return new LetterRange
+                    {
+                        Start = char.ToUpperInvariant(start),
+                        End = char.ToUpperInvariant(end),
+                        Label = shareLabel,
+                        RootPath = root
+                    };
+                }).ToList();
+            }
+
+            // Generated ranges (do not edit manually)
+            public static readonly List<LetterRange> TvRanges =
+                BuildRanges(
+                    TvRangeDefinitions,
+                    def => def.ToLowerInvariant(),              // "#-B" -> "#-b"
+                    QUADPLEX,
+                    WORKING_AREA_FOLDER
+                );
+
+            public static readonly List<LetterRange> MovieRanges =
+                BuildRanges(
+                    MovieRangeDefinitions,
+                    def => $"Movies {def}",                     // "E-M" -> "Movies E-M"
+                    QUADPLEX,
+                    WORKING_AREA_FOLDER
+                );
+
+            // Common roots
+            public static string OtherWorkingAreaRoot => Unc(QUADPLEX, OTHER_SHARE, WORKING_AREA_FOLDER);
+            public static string OtherMoviesLibraryRoot => Unc(QUADPLEX, OTHER_SHARE, OTHER_BUS_FOLDER, MOVIES_FOLDER);
+
+            public static string GetTvWorkingAreaRoot(char letter, out string label)
+            {
+                letter = char.ToUpperInvariant(letter);
+
+                // Anything non-letter should go to '#'
+                if (letter < 'A' || letter > 'Z') letter = '#';
+
+                foreach (var r in TvRanges)
+                {
+                    if (r.Contains(letter))
+                    {
+                        label = r.Label;
+                        return r.RootPath;
+                    }
+                }
+
+                // Fail-safe: last range
+                var last = TvRanges[TvRanges.Count - 1];
+                label = last.Label;
+                return last.RootPath;
+            }
+
+            public static string GetMovieWorkingAreaRoot(char letter, out string label)
+            {
+                letter = char.ToUpperInvariant(letter);
+                if (letter < 'A' || letter > 'Z') letter = '#';
+
+                foreach (var r in MovieRanges)
+                {
+                    if (r.Contains(letter))
+                    {
+                        label = r.Label;
+                        return r.RootPath;
+                    }
+                }
+
+                var last = MovieRanges[MovieRanges.Count - 1];
+                label = last.Label;
+                return last.RootPath;
+            }
+
+            // Convenience: locations where SRT scans commonly run
+            public static string[] GetAllSrtScanLocations()
+            {
+                var list = new List<string>();
+
+                // TV libraries
+                foreach (var r in TvRanges)
+                    list.Add(Unc(QUADPLEX, r.Label, TV_SHOWS_FOLDER));
+
+                // Movie libraries
+                foreach (var r in MovieRanges)
+                    list.Add(Unc(QUADPLEX, r.Label, MOVIES_FOLDER));
+
+                // Other
+                list.Add(Unc(QUADPLEX, OTHER_SHARE, OTHER_BUS_FOLDER));
+
+                return list.ToArray();
+            }
+
+            public static string[] GetMovieWorkingAreaRoots()
+            {
+                return MovieRanges
+                    .Select(r => r.RootPath)
+                    .Concat(new[] { OtherWorkingAreaRoot })
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+            }
+            public static string[] GetTvWorkingAreaRoots()
+            {
+                return TvRanges
+                    .Select(r => r.RootPath)
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+            }
+        }
 
         static void Main(string[] args)
         {
@@ -216,6 +796,23 @@ namespace SheetsQuickstart
             } while (keepAskingForChoice);
 
         } // End Main
+
+        [DataContract]
+        public class RenameTransactionLog
+        {
+            [DataMember] public string createdUtc { get; set; }
+            [DataMember] public string mode { get; set; }
+            [DataMember] public string sourceDirectory { get; set; }
+            [DataMember] public bool dryRun { get; set; }
+            [DataMember] public List<RenameMove> moves { get; set; } = new List<RenameMove>();
+        }
+
+        [DataContract]
+        public class RenameMove
+        {
+            [DataMember] public string from { get; set; }
+            [DataMember] public string to { get; set; }
+        }
 
         /// <summary>
         /// Gives the main menu.
@@ -270,6 +867,10 @@ namespace SheetsQuickstart
             Type(convertTempTVShowsSlowChoice + "- Temp TV Shows (Slow)", 0, 0, 1, CONVERT_FILES_COLOR);
             convertDirectoryChoice = "19";
             Type(convertDirectoryChoice + "- Convert a selected directory.", 0, 0, 1, CONVERT_FILES_COLOR);
+            audioCompatibilityConverterChoice = "19a";
+            Type(audioCompatibilityConverterChoice + "- Add AC3 5.1 compatibility audio from English EAC3 tracks.", 0, 0, 1, CONVERT_FILES_COLOR);
+            audioCensorRunnerChoice = "19c";
+            Type(audioCensorRunnerChoice + "- Scan SRT profanity for future clean audio muting.", 0, 0, 1, CONVERT_FILES_COLOR);
 
             const string TMDB_CALL_COLOR = "Green";
             Type("");
@@ -305,6 +906,8 @@ namespace SheetsQuickstart
             Type(overwriteVideoResolutionChoice + "- Overwrite Video Resolutions in Google Sheet.", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
             getMovieWatchProviders = "43";
             Type(getMovieWatchProviders + "- Get movie streaming providers.", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
+            getMovieWatchProvidersOfSelectedMovies = "43s";
+            Type(getMovieWatchProvidersOfSelectedMovies + "- Get movie streaming providers of selected movies.", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
             addAllActorsCredits = "48";
             Type(addAllActorsCredits + "- Add all actors credits.", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
             clearSelectedRowInMoviesSheet = "51";
@@ -315,6 +918,15 @@ namespace SheetsQuickstart
             Type(addSizeOfMovieDirectories + "- Add the size of Movie directories to the Movies Sheet.", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
             overwriteSizeOfMovieDirectories = "52o";
             Type(overwriteSizeOfMovieDirectories + "- Overwrite the size of Movie directories to the Movies Sheet.", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
+            fileTypeChoice = "54";
+            Type(fileTypeChoice + "- Add missing File Types to Google Sheet.", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
+            fileTypeOverwriteChoice = "54o";
+            Type(fileTypeOverwriteChoice + "- Overwrite File Types in Google Sheet.", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
+            rebuildWebMoviesChoice = "59w";
+            Type(rebuildWebMoviesChoice + "- Rebuild Web Movies from Movies sheet only.", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
+            profileRequestProcessorChoice = "59";
+            Type(profileRequestProcessorChoice + "- Process Profile Requests, rebuild Web Movies, sync Plex metadata, and refresh media libraries.", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
+
 
 
             Type("");
@@ -323,6 +935,10 @@ namespace SheetsQuickstart
             Type(missingTvShowNfoFilesChoice + "- Missing TV Show NFO Files", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
             overwriteAllTvShowNfoFilesChoice = "n7o";
             Type(overwriteAllTvShowNfoFilesChoice + "- Overwrite ALL TV Show NFO Files", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
+            selectedTvShowNfoFilesChoice = "n7s";
+            Type(selectedTvShowNfoFilesChoice + "- Selected TV Show NFO Files", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
+            getTvShowWatchProviders = "43t";
+            Type(getTvShowWatchProviders + "- Get TV Show possible record sources.", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
             addSizeOfTvShowDirectories = "24";
             Type(addSizeOfTvShowDirectories + "- Add the size of the TV Shows directories to the DB Sheet.", 0, 0, 1, UPDATE_GOOGLE_SHEET_COLOR);
             overwriteSizeOfTvShowDirectories = "24o";
@@ -402,12 +1018,40 @@ namespace SheetsQuickstart
             Type(getDirectorySizeChoice + "- Calculate the size of a folder.", 0, 0, 1, MISC_COLOR);
             changeTheSeason = "47";
             Type(changeTheSeason + "- Change the episodes in a folder to a different season.", 0, 0, 1, MISC_COLOR);
+            changeEpisodesIntoTwoPartsChoice = "47b";
+            Type(changeEpisodesIntoTwoPartsChoice + "- Change the episodes in a folder to combined episodes. (i.e. S01E01 becomes S01E01-E02)", 0, 0, 1, MISC_COLOR);
+            revertEpisodeCombineChoice = "47br";
+            Type(revertEpisodeCombineChoice + "- Revert a Combine Episodes run using the JSON log file.", 0, 0, 1, MISC_COLOR);
+            resetEpisodeNumbersChoice = "47c";
+            Type(resetEpisodeNumbersChoice + "- Reset the episode numbers in a folder to start at 01.", 0, 0, 1, MISC_COLOR);
+            resetEpisodeNumbersToChosenNumberChoice = "47d";
+            Type(resetEpisodeNumbersToChosenNumberChoice + "- Reset the episode numbers in a folder to a chosen number.", 0, 0, 1, MISC_COLOR);
             searchYoutubeAndDownloadMovieTrailersChoice = "49";
             Type(searchYoutubeAndDownloadMovieTrailersChoice + "- Search for and download movie trailers from YouTube. (This eats up the YouTube API quota very fast, use sparingly)", 0, 0, 1, MISC_COLOR);
             downloadMovieTrailersChoice = "50";
             Type(downloadMovieTrailersChoice + "- Download movies from YouTube using the YouTube IDs in the Google sheet", 0, 0, 1, MISC_COLOR);
-            changeEpisodesIntoTwoPartsChoice = "53";
-            Type(changeEpisodesIntoTwoPartsChoice + "- Change the episodes in a folder to combined episodes. (i.e. S01E01 becomes S01E01-E02)", 0, 0, 1, MISC_COLOR);
+            checkSrtFileNamesChoice = "53";
+            Type(checkSrtFileNamesChoice + "- Verify that all SRT files have the ENG flag.", 0, 0, 1, MISC_COLOR);
+            checkSelectedSrtFileNamesChoice = "53s";
+            Type(checkSelectedSrtFileNamesChoice + "- Verify that the SRT files in the selected directory have the ENG flag.", 0, 0, 1, MISC_COLOR);
+            renameMoviesFromSheetChoice = "55";
+            Type(renameMoviesFromSheetChoice + "- Rename movies and SRT files using the IMDB Title from the Google Sheet.", 0, 0, 1, MISC_COLOR);
+            movieFilenameScannerChoice = "55v";
+            Type(movieFilenameScannerChoice + "- Verify movie/NFO/SRT/BIF/trailer/trickplay names against the Movies sheet and approve suggested renames.", 0, 0, 1, MISC_COLOR);
+            moveReadyVideosChoice = "55m";
+            Type(moveReadyVideosChoice + "- Move video files that are in 'Ready' folders to the 'Working Area' folders.", 0, 0, 1, MISC_COLOR);
+            srtScoreRunnerChoice = "56";
+            Type(srtScoreRunnerChoice + "- Score movie SRT files and add to the Google Sheet.", 0, 0, 1, MISC_COLOR);
+            fileHealthRunnerChoice = "57";
+            Type(fileHealthRunnerChoice + "- Scan Movies sheet for video File Health and write OK/BAD.", 0, 0, 1, "DarkYellow");
+            fullMovieHealthCheck = "57s";
+            Type(fullMovieHealthCheck + "- Check full video health for selected file/folder (no sheet update).", 0, 0, 1, "DarkYellow");
+            plexPopulateRatingKeysChoice = "58";
+            Type(plexPopulateRatingKeysChoice + "- Populate missing Plex ratingKeys into Movies sheet and mark Quick Create (match by IMDB/TMDB).", 0, 0, 1, "DarkYellow");
+            plexOverwriteRatingKeysChoice = "58o";
+            Type(plexOverwriteRatingKeysChoice + "- Overwrite changed Plex ratingKeys in Movies sheet and mark Quick Create (match by IMDB/TMDB).", 0, 0, 1, "DarkYellow");
+            plexSyncMetadataChoice = "60";
+            Type(plexSyncMetadataChoice + "- Sync Plex labels (Tags/NFO Body <tag>), sort title, and plot from Movies sheet.", 0, 0, 1, "DarkYellow");
 
             return Console.ReadLine().Split(',');
 
@@ -417,89 +1061,6 @@ namespace SheetsQuickstart
             bool keepAskingForChoice = true;
             try
             {
-                Dictionary<string, int> movieSheetVariables = new Dictionary<string, int>
-                {
-                    { ADDITIONAL_COMMANDS, -1 },
-                    { "Auto Content Rating", -1 },
-                    { "Auto MPAA", -1 },
-                    { "Auto Title", -1 },
-                    { "Cast", -1 },
-                    { "Cindy", -1 },
-                    { CLEAN_TITLE, -1 },
-                    { "Content Rating", -1 },
-                    { "Dave", -1 },
-                    { DIRECTORY, -1 },
-                    { "IMDB ID", -1 },
-                    { "IMDB Title", -1 },
-                    { "IMDB URL", -1 },
-                    { ISO_CH_NUM, -1 },
-                    { ISO_TITLE_NUM, -1 },
-                    { "Kids", -1 },
-                    { "Movie Has Trailer", -1 },
-                    { "Movie Letter", -1 },
-                    { "MPAA", -1 },
-                    { NFO_BODY, -1 },
-                    { "Ownership", -1 },
-                    { "Plot", -1 },
-                    { "Possible Record Source", -1 },
-                    { QUICK_CREATE, -1 },
-                    { "Release Date", -1 },
-                    { "Resolution", -1 },
-                    { ROW_NUM, -1 },
-                    { "Size", -1 },
-                    { "Sort Title", -1 },
-                    { STATUS, -1 },
-                    { "StreamFab", -1 },
-                    { "TMDB ID", -1 },
-                    { "TMDB Rating", -1 },
-                    { "YouTube Trailer ID", -1 }
-                };
-
-                Dictionary<string, int> clearableMovieSheetVariables = new Dictionary<string, int>
-                {
-                    { ROW_NUM, -1 },
-                    { "Alternate", -1 },
-                    { "Status", -1 },
-                    { "Ownership", -1 },
-                    { "Recorded Source", -1 },
-                    { "StreamFab", -1 },
-                    { "Playon", -1 },
-                    { "Removed Splashes", -1 },
-                    { "Include Subtitles", -1 },
-                    { "Verify Subtitles Sync", -1 },
-                    { "Note", -1 },
-                    { "Possible Record Source", -1 },
-                    { "Special", -1 },
-                    { "Kids", -1 },
-                    { "Grayson", -1 },
-                    { "Carson", -1 },
-                    { "Emerson", -1 },
-                    { "Evelyn", -1 },
-                    { "Block Jeff and Shar", -1 },
-                    { "Grandma and Grandpa", -1 },
-                    { "Block BandV", -1 },
-                    { "Cindy", -1 },
-                    { "Dave", -1 },
-                    { "Selected Resolution", -1 },
-                    { "Recorded Version", -1 },
-                    { "Resolution", -1 },
-                    { "Date Added", -1 },
-                    { "Size", -1 },
-                    { "IMDB Title", -1 },
-                    { "Sort Title", -1 },
-                    { "Content Rating", -1 },
-                    { "IMDB URL", -1 },
-                    { "TMDB Rating", -1 },
-                    { "Plot", -1 },
-                    { "Release Date", -1 },
-                    { "MPAA", -1 },
-                    { "YouTube Trailer ID", -1 },
-                    { "Movie Has Trailer", -1 },
-                    { "Cast", -1 },
-                    { "TMDB ID", -1 },
-                    { QUICK_CREATE, -1 }
-                };
-
                 Dictionary<string, int> autopopulateActorsSheetVariables = new Dictionary<string, int>
                 {
                     { "Name", -1 },
@@ -520,6 +1081,7 @@ namespace SheetsQuickstart
                     { "Found Locations", -1 },
                     { "Hard Drive Letter", -1 },
                     { NFO_BODY, -1 },
+                    { QUICK_CREATE, -1 },
                     { ROW_NUM, -1 },
                     { "Season Count", -1 },
                     { "Series Name", -1 },
@@ -527,6 +1089,18 @@ namespace SheetsQuickstart
                     { "TVDB ID", -1 },
                     { "TVDB Slug", -1 },
                     { "Year", -1 }
+                };
+
+                Dictionary<string, int> tvShowStreamingProviderSheetVariables = new Dictionary<string, int>
+                {
+                    { ROW_NUM, -1 },
+                    { "Clean Name with Year", -1 },
+                    { "Series Name", -1 },
+                    { "TVDB ID", -1 },
+                    { "StreamFab", -1 },
+                    { "Possible Record Source", -1 },
+                    { "Resolution", -1 },
+                    { "Format", -1 }
                 };
 
                 Dictionary<string, int> combinedEpisodeSheetVariables = new Dictionary<string, int>
@@ -661,10 +1235,7 @@ namespace SheetsQuickstart
                 {
                     Type("Insert selected NFO Files. Let's go!", 0, 0, 1);
 
-                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
-
-                    DisplayMessage("info", "Adding/Overwriting selected NFO files...");
-                    CreateNfoFiles(movieData, movieSheetVariables, 2);
+                    RunSelectedMovieNfoFiles();
                 }
                 else if (choice.Equals(missingTvShowNfoFilesChoice))
                 {
@@ -683,6 +1254,15 @@ namespace SheetsQuickstart
 
                     DisplayMessage("info", "Searching for missing NFO files...");
                     CreateTvShowNfoFiles(tvShowData, dbSheetVariables, 1);
+                }
+                else if (choice.Equals(selectedTvShowNfoFilesChoice))
+                {
+                    Type("Insert selected NFO Files for TV Shows. Let's go!", 0, 0, 1);
+
+                    IList<IList<Object>> tvShowData = CallGetData(dbSheetVariables, DB_TITLE_RANGE, DB_DATA_RANGE);
+
+                    DisplayMessage("info", "Adding/Overwriting selected TV Show NFO files...");
+                    CreateTvShowNfoFiles(tvShowData, dbSheetVariables, 2);
                 }
                 else if (choice.Equals(missingCombinedEpisodeNfoFilesChoice)) // Create missing NFO files for TV Show episodes.
                 {
@@ -747,7 +1327,7 @@ namespace SheetsQuickstart
 
                     IList<IList<Object>> videoData = CallGetData(fitnessSheetVariables, FITNESS_VIDEO_TITLE_RANGE, FITNESS_VIDEO_DATA_RANGE);
 
-                    BachFlixNfo.OverwriteFitnessVideoNfoFiles(videoData, fitnessSheetVariables);
+                    BachFlixNfo.BachFlixNfo.OverwriteFitnessVideoNfoFiles(videoData, fitnessSheetVariables);
                 }
                 else if (choice.Equals(convertMoviesChoice))
                 {
@@ -947,6 +1527,20 @@ namespace SheetsQuickstart
                     IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
                     FillInStreamingProviders(movieData, movieSheetVariables);
                 }
+                else if (choice.Equals(getMovieWatchProvidersOfSelectedMovies))
+                {
+                    DisplayMessage("info", "Fill in the movie streaming providers of selected movies. Let's go!");
+
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                    FillInStreamingProviders(movieData, movieSheetVariables, true);
+                }
+                else if (choice.Equals(getTvShowWatchProviders))
+                {
+                    DisplayMessage("info", "Fill in the TV Show possible record sources. Let's go!");
+
+                    IList<IList<Object>> tvShowData = CallGetData(tvShowStreamingProviderSheetVariables, DB_TITLE_RANGE, DB_DATA_RANGE);
+                    FillInTvShowStreamingProviders(tvShowData, tvShowStreamingProviderSheetVariables);
+                }
                 else if (choice.Equals(addAllActorsCredits))
                 {
                     DisplayMessage("info", "Fill in all the actors credits. Let's go!");
@@ -958,18 +1552,21 @@ namespace SheetsQuickstart
                     {
                         string actorPlural = autoPopulateActorsData.Count == 1 ? " actor " : " actors ";
                         int count = 1;
-                        IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                        IList<IList<Object>> movieData = new List<IList<object>> { };
                         DisplayMessage("info", autoPopulateActorsData.Count + actorPlural + "found. Now stepping through each actor to get data.");
-                        BatchUpdateValuesRequest batchRequest = new BatchUpdateValuesRequest
-                        {
-                            ValueInputOption = "USER_ENTERED",
-                            Data = new List<ValueRange>() // Initialize the list
-                        };
+                        bool moviesAddedToSheet = true;
+
                         foreach (var actor in autoPopulateActorsData)
                         {
-                            string message = $"{count} of {autoPopulateActorsData.Count} - {actor[0].ToString()} - ";
                             Type("");
                             DisplayMessage("info", "----------------------------------------------------");
+
+                            if (moviesAddedToSheet)
+                            {
+                                movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                            }
+
+                            string message = $"{count} of {autoPopulateActorsData.Count} - {actor[0].ToString()} - ";
 
                             DisplayMessage("warning", "Gathering movie credits for ", 0);
                             DisplayMessage("success", actor[0].ToString(), 0);
@@ -977,15 +1574,11 @@ namespace SheetsQuickstart
                             dynamic actorMovieCredits = TmdbApi.ActorsGetMovieCredits(actor[1].ToString());
                             DisplayMessage("success", "DONE");
 
-                            batchRequest = FillInActorMovieCredits(movieData, movieSheetVariables, actorMovieCredits.cast, ref skipMovieIdsData, message, batchRequest);
+                            moviesAddedToSheet = FillInActorMovieCredits(movieData, movieSheetVariables, actorMovieCredits.cast, ref skipMovieIdsData, message);
                             count++;
                         }
-
-                        if (batchRequest.Data.Count > 0)
-                        {
-                            var BatchUpdateValuesResponse = BulkWriteToSheet(batchRequest);
-                        }
-                    } else
+                    }
+                    else
                     {
                         DisplayMessage("warning", "No Actors found, Add names and person_id to the Autopopulate Actors sheet.");
                     }
@@ -999,11 +1592,11 @@ namespace SheetsQuickstart
                 }
                 else if (choice.Equals(clearSelectedRowInMoviesSheetAndAddToSkipList))
                 {
-                    DisplayMessage("info", "This is still under construction. Pick something else");
-                    //DisplayMessage("info", "Clear the data from selected rows. Let's go!");
+                    DisplayMessage("info", "Clear the data from selected rows, and add the selected videos to the skip list. Let's go!");
 
-                    //IList<IList<Object>> movieData = CallGetData(clearableMovieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
-                    //ClearSelectedRowData(movieData, clearableMovieSheetVariables);
+                    IList<IList<Object>> movieData = CallGetData(clearableMovieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                    IList<IList<Object>> skipMovieIdsData = CallGetData(skipMovieIdsSheetVariables, SKIP_ACTORS_ID_TITLE_RANGE, SKIP_ACTORS_ID_DATA_RANGE, "Gathering list of movie IDs to skip... ");
+                    ClearSelectedRowData(movieData, clearableMovieSheetVariables, skipMovieIdsData);
                 }
                 else if (choice.Equals(moveFolderContentsChoice))
                 {
@@ -1066,57 +1659,199 @@ namespace SheetsQuickstart
                 }
                 else if (choice.Equals(changeEpisodesIntoTwoPartsChoice))
                 {
-                    DisplayMessage("info", "Combine episodes in selected folder, let's go!", 2);
+                    DisplayMessage("info", "Smart normalize/combine episodes in selected folder, let's go!", 2);
 
                     var directory = AskForDirectory("Give me the directory full of TV show episodes.");
                     if (directory != "0")
                     {
-                        // Grab all files in the directory.
-                        Type("Grabbing all files... ", 0, 0, 0, "Yellow");
-                        string[] fileEntries = Directory.GetFiles(directory, "*.mp4");
+
+                        // --- Dry run prompt
+                        DisplayMessage("question", "Dry run first? (y/n)  (Dry run prints + logs but does NOT rename files)", 1);
+                        string dryInput = Console.ReadLine();
+                        bool dryRun = !string.IsNullOrWhiteSpace(dryInput) &&
+                                      dryInput.Trim().Equals("y", StringComparison.OrdinalIgnoreCase);
+
+                        // Grab all MKVs in the directory (top-level only).
+                        Type("Grabbing all MKV files... ", 0, 0, 0, "Yellow");
+                        string[] fileEntries = Directory.GetFiles(directory, "*.mkv", SearchOption.TopDirectoryOnly);
                         Type("DONE", 0, 0, 2, "Green");
 
-                        // Use a regular expression to find and replace the season number
-                        string pattern = @"S(\d{2})E(\d{2})";
-                        int startingEpisode = 1;
-
-                        foreach (var originalFile in fileEntries)
+                        if (fileEntries.Length == 0)
                         {
-                            string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(originalFile);
-
-                            string searchString = $"*{fileNameWithoutExtension}*";
-
-                            string[] filteredEntries = Directory.GetFiles(directory, searchString);
-
-                            foreach (var filteredFile in filteredEntries)
-                            {
-                                // Use regex to check if the file name matches the expected pattern
-                                Match match = Regex.Match(filteredFile, pattern);
-
-                                if (match.Success)
-                                {
-                                    // Extract the season number
-                                    string seasonNumber = match.Groups[1].Value;
-
-                                    // Create the new episode numbers
-                                    string replacement = $"S{seasonNumber}E{startingEpisode:D2}-E{startingEpisode + 1:D2}";
-
-                                    // Combine the folder path with the new file name
-                                    string newFile = Regex.Replace(filteredFile, pattern, replacement);
-
-                                    // Rename the file
-                                    File.Move(filteredFile, newFile);
-                                    Console.WriteLine($"Renamed:");
-                                    Console.WriteLine(Path.GetFileName(filteredFile));
-                                    Console.WriteLine(Path.GetFileName(newFile));
-                                    Console.WriteLine();
-                                }
-                            }
-                            // Increment the starting episode by 2 for the next file
-                            startingEpisode += 2;
+                            Type("No videos found! Are they the right format?", 0, 0, 2, "Red");
                         }
-                        Type("DONE", 0, 0, 1, "Green");
+                        else
+                        {
+                            // Match: S04E03  or  S04E03-E04
+                            Regex epRegex = new Regex(
+                                @"S(?<season>\d{2})E(?<ep>\d{2})(?:-E(?<ep2>\d{2}))?",
+                                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+                            // Build an ordered list based on the MKVs (driver files)
+                            var parsed = new List<(string MkvPath, int Season, int Ep, bool IsCombined)>();
+
+                            foreach (var mkv in fileEntries)
+                            {
+                                string name = Path.GetFileNameWithoutExtension(mkv);
+                                Match m = epRegex.Match(name);
+
+                                if (!m.Success)
+                                    continue;
+
+                                int season = int.Parse(m.Groups["season"].Value);
+                                int ep = int.Parse(m.Groups["ep"].Value);
+
+                                // Combined heuristic:
+                                // - already has -E## in the episode token
+                                // - OR underscore in filename with spaces around it
+                                bool isCombined = m.Groups["ep2"].Success || name.Contains(" _ ");
+
+                                parsed.Add((mkv, season, ep, isCombined));
+                            }
+
+                            if (parsed.Count == 0)
+                            {
+                                Type("No MKVs matched SxxEyy naming pattern.", 0, 0, 2, "Red");
+                            }
+                            else
+                            {
+                                parsed = parsed
+                                    .OrderBy(x => x.Season)
+                                    .ThenBy(x => x.Ep)
+                                    .ToList();
+
+                                // Starting episode = first episode found in folder
+                                int counter = parsed.Min(x => x.Ep);
+
+                                DisplayMessage("info", $"Starting episode counter at E{counter:D2}.", 1);
+                                DisplayMessage("info", dryRun ? "DRY RUN enabled (no files will be moved)." : "LIVE RUN enabled (files WILL be renamed).", 2);
+
+                                // Build the log
+                                var log = new RenameTransactionLog
+                                {
+                                    createdUtc = DateTime.UtcNow.ToString("o"),
+                                    mode = "SmartCombine47b",
+                                    sourceDirectory = directory,
+                                    dryRun = dryRun
+                                };
+
+                                foreach (var entry in parsed)
+                                {
+                                    string mkvPath = entry.MkvPath;
+                                    string baseName = Path.GetFileNameWithoutExtension(mkvPath);
+
+                                    // Compute replacement token
+                                    string newToken = entry.IsCombined
+                                        ? $"S{entry.Season:D2}E{counter:D2}-E{counter + 1:D2}"
+                                        : $"S{entry.Season:D2}E{counter:D2}";
+
+                                    // Rename all files that share the same base name (mkv + srt + nfo + etc.)
+                                    string[] sidecars = Directory.GetFiles(directory, baseName + ".*", SearchOption.TopDirectoryOnly);
+
+                                    foreach (var file in sidecars)
+                                    {
+                                        string fileNameOnly = Path.GetFileName(file);
+
+                                        if (!epRegex.IsMatch(fileNameOnly))
+                                            continue;
+
+                                        string newFileNameOnly = epRegex.Replace(fileNameOnly, newToken, 1);
+                                        if (newFileNameOnly.Equals(fileNameOnly, StringComparison.OrdinalIgnoreCase))
+                                            continue;
+
+                                        string newFullPath = Path.Combine(directory, newFileNameOnly);
+
+                                        // Safety: do not overwrite
+                                        if (File.Exists(newFullPath))
+                                        {
+                                            DisplayMessage("error", $"Target already exists, skipping: {newFileNameOnly}", 1);
+                                            continue;
+                                        }
+
+                                        // Log it
+                                        log.moves.Add(new RenameMove { from = file, to = newFullPath });
+
+                                        // Print it
+                                        Console.WriteLine(entry.IsCombined ? "[COMBINE]" : "[SINGLE]");
+                                        Console.WriteLine("Renamed:");
+                                        Console.WriteLine(Path.GetFileName(file));
+                                        Console.WriteLine(newFileNameOnly);
+                                        Console.WriteLine();
+
+                                        // Move it (only if live)
+                                        if (!dryRun)
+                                        {
+                                            File.Move(file, newFullPath);
+                                        }
+                                    }
+
+                                    // advance the counter
+                                    counter += entry.IsCombined ? 2 : 1;
+                                }
+
+                                // Write the JSON log (even for dry run)
+                                string logDir = @"C:\Users\Brandon\Desktop\BachFlixNfo Logs\Combine Episodes";
+                                Directory.CreateDirectory(logDir);
+
+                                string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+
+                                ExtractShowAndSeasonFromPath(directory, out string showName, out string seasonLabel);
+
+                                string modeTag = dryRun ? "DRYRUN" : "LIVE";
+                                string logFileName = $"{showName} - {seasonLabel} - {modeTag} - {stamp}.json";
+
+                                string logPath = Path.Combine(logDir, logFileName);
+                                WriteJsonLog(logPath, log);
+
+                                DisplayMessage("success", $"Combine log written: {logPath}", 2);
+                                Type("DONE", 0, 0, 1, "Green");
+                            }
+                        }
                     }
+                }
+                else if (choice == revertEpisodeCombineChoice)
+                {
+                    RevertEpisodeCombineFromLog();
+                }
+                else if (choice.Equals(resetEpisodeNumbersChoice))
+                {
+                    DisplayMessage("info", "Reset episode numbers in chosen folder, let's go!", 2);
+
+                    UpdateEpisodeNumbersInChosenDirectory();
+                }
+                else if (choice.Equals(checkSrtFileNamesChoice))
+                {
+                    DisplayMessage("info", "Verify that all SRT files have the ENG flag, let's go!", 2);
+
+                    // Centralized in DriveMapping
+                    string[] srtLocations = DriveMapping.GetAllSrtScanLocations();
+
+                    verifySrtFileNames(srtLocations);
+
+                    displayMissingEngResults();
+                }
+                else if (choice.Equals(checkSelectedSrtFileNamesChoice))
+                {
+                    DisplayMessage("info", "Verify that the SRT files in the selected directory have the ENG flag, let's go!", 2);
+                    var directory = AskForDirectory();
+
+                    if (directory != "0")
+                    {
+                        string[] srtLocation = { directory };
+
+                        verifySrtFileNames(srtLocation);
+                    }
+
+                    displayMissingEngResults();
+                }
+                else if (choice.Equals(resetEpisodeNumbersToChosenNumberChoice))
+                {
+                    DisplayMessage("info", "Reset episode numbers in chosen folder to selected number, let's go!", 2);
+
+                    DisplayMessage("question", "Now, what episode number would you like to reset to? (Number only including the leading zero i.e. 01)");
+                    string newEpisodeNumber = RemoveCharFromString(Console.ReadLine(), '"');
+
+                    UpdateEpisodeNumbersInChosenDirectory(int.Parse(newEpisodeNumber));
                 }
                 else if (choice.Equals(searchYoutubeAndDownloadMovieTrailersChoice))
                 {
@@ -1150,33 +1885,312 @@ namespace SheetsQuickstart
                 {
                     Type("Add the size of TV Show directories to the DB sheet. Let's go!", 0, 0, 2);
 
-                    IList<IList<Object>> videoData = CallGetData(dbSheetVariables, DB_TITLE_RANGE, DB_DATA_RANGE);
+                    IList<IList<Object>> movieData = CallGetData(dbSheetVariables, DB_TITLE_RANGE, DB_DATA_RANGE);
 
-                    InsertTvShowDirectorySizesIntoDbSheet(videoData, dbSheetVariables, false);
+                    InsertTvShowDirectorySizesIntoDbSheet(movieData, dbSheetVariables, false);
                 }
                 else if (choice.Equals(overwriteSizeOfTvShowDirectories))
                 {
                     Type("Overwrite the size of TV Show directories to the DB sheet. Let's go!", 0, 0, 2);
 
-                    IList<IList<Object>> videoData = CallGetData(dbSheetVariables, DB_TITLE_RANGE, DB_DATA_RANGE);
+                    IList<IList<Object>> movieData = CallGetData(dbSheetVariables, DB_TITLE_RANGE, DB_DATA_RANGE);
 
-                    InsertTvShowDirectorySizesIntoDbSheet(videoData, dbSheetVariables, true);
+                    InsertTvShowDirectorySizesIntoDbSheet(movieData, dbSheetVariables, true);
                 }
                 else if (choice.Equals(addSizeOfMovieDirectories))
                 {
                     Type("Add the size of Movie directories to the Movies Sheet. Let's go!", 0, 0, 2);
 
-                    IList<IList<Object>> videoData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
 
-                    InsertMovieDirectorySizesIntoMoviesSheet(videoData, movieSheetVariables, false);
+                    InsertMovieDirectorySizesIntoMoviesSheet(movieData, movieSheetVariables, false);
                 }
                 else if (choice.Equals(overwriteSizeOfMovieDirectories))
                 {
                     Type("Overwrite the size of Movie directories to the Movies Sheet. Let's go!", 0, 0, 2);
 
-                    IList<IList<Object>> videoData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
 
-                    InsertMovieDirectorySizesIntoMoviesSheet(videoData, movieSheetVariables, true);
+                    InsertMovieDirectorySizesIntoMoviesSheet(movieData, movieSheetVariables, true);
+                }
+                else if (choice.Equals(fileTypeChoice))
+                {
+                    Type("Add missing File Types to the Google Sheet. Let's go!", 0, 0, 2);
+
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+
+                    FillInFileTypes(movieData, movieSheetVariables, false);
+                }
+                else if (choice.Equals(fileTypeOverwriteChoice))
+                {
+                    Type("Add missing File Types to the Google Sheet. Let's go!", 0, 0, 2);
+
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+
+                    FillInFileTypes(movieData, movieSheetVariables, true);
+                }
+                else if (choice.Equals(renameMoviesFromSheetChoice))
+                {
+                    DisplayMessage("info", "Rename movies and SRT files using the IMDB Title from the Google Sheet. Let's go!", 2);
+
+                    var directory = AskForDirectory("Enter the directory that contains the movies to rename:");
+                    if (directory != "0")
+                    {
+                        // Grab all files and filter to just video files (movies) using your existing helper.
+                        string[] fileEntries = Directory.GetFiles(directory, "*.*", SearchOption.AllDirectories);
+                        ArrayList movieFiles = GrabMovieFiles(fileEntries, showMessage: false);
+
+                        if (movieFiles.Count == 0)
+                        {
+                            DisplayMessage("warning", "No video files found in the selected directory.");
+                        }
+                        else
+                        {
+                            IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                            RenameMoviesAndSrtsFromSheet(movieData, movieSheetVariables, movieFiles, directory);
+                        }
+                    }
+                }
+                else if (choice.Equals(movieFilenameScannerChoice))
+                {
+                    Console.WriteLine();
+                    DisplayMessage("info", "Verifying movie, sidecar, trailer, and trickplay names against the Movies sheet. Let's go!", 2);
+
+                    SheetsService sheetsService = CreateSheetsService();
+                    MovieFilenameSheetScanner.RunInteractive(
+                        sheetsService,
+                        SPREADSHEET_ID,
+                        "Movies",
+                        (t, msg, ind) => DisplayMessage(t, msg, ind));
+                }
+                else if (choice.Equals(moveReadyVideosChoice))
+                {
+                    DisplayMessage("info", "55m - Scan Ready folders, rename movies from sheet (ask early), then move Movies/TV to Working Areas. Let's go!", 2);
+
+                    Run55m_RenameMoviesFirst_ThenMove();
+                }
+                else if (choice.Equals(srtScoreRunnerChoice))
+                {
+                    Console.WriteLine();
+                    DisplayMessage("info", "Run subtitle scoring. Let's go!", 2);
+
+                    // --- duplicate auth code for now (same pattern as WriteSingleCellToSheet / BulkWriteToSheet) ---
+                    UserCredential credential;
+
+                    using (var stream =
+                        new FileStream("credentials.json", FileMode.Open, FileAccess.Read))
+                    {
+                        string credPath = "token.json";
+                        credential = GoogleWebAuthorizationBroker.AuthorizeAsync(
+                            GoogleClientSecrets.FromStream(stream).Secrets,
+                            SCOPES,
+                            "user",
+                            CancellationToken.None,
+                            new FileDataStore(credPath, true)).Result;
+                    }
+
+                    SheetsService sheetsService = new SheetsService(new BaseClientService.Initializer
+                    {
+                        HttpClientInitializer = credential,
+                        ApplicationName = "Google-SheetsSample/0.1",  // same as your other helpers
+                    });
+                    // --- end local SheetsService setup ---
+
+                    SubtitleScoreRunner.Run(sheetsService, SPREADSHEET_ID, "Movies");
+                }
+                else if (choice.Equals(fileHealthRunnerChoice))
+                {
+                    Console.WriteLine();
+                    DisplayMessage("info", "Scanning Movies sheet for video File Health and updating 'File Health' column. Let's go!", 2);
+
+                    // You already have a helper that builds a SheetsService:
+                    SheetsService sheetsService = CreateSheetsService();
+
+                    VideoHealthSheetRunner.Run(sheetsService, SPREADSHEET_ID, "Movies");
+                }
+                else if (choice.Equals(plexPopulateRatingKeysChoice) || choice.Equals(plexOverwriteRatingKeysChoice))
+                {
+                    Console.WriteLine();
+                    bool overwriteRatingKeys = choice.Equals(plexOverwriteRatingKeysChoice);
+                    DisplayMessage(
+                        "info",
+                        overwriteRatingKeys
+                            ? "Overwriting Plex ratingKeys in Movies sheet (match by IMDB/TMDB). Let's go!"
+                            : "Populating missing Plex ratingKeys into Movies sheet (match by IMDB/TMDB). Let's go!",
+                        2);
+
+                    // Sheets
+                    SheetsService sheetsService = CreateSheetsService();
+
+                    string plexBase = GetPlexBaseUrlFromVarsSheet();
+                    if (string.IsNullOrWhiteSpace(plexBase))
+                    {
+                        Type("Plex base URL (Enter for http://192.168.0.5:32400): ", 0, 0, 0);
+                        plexBase = Console.ReadLine();
+                        if (string.IsNullOrWhiteSpace(plexBase)) plexBase = "http://192.168.0.5:32400";
+                    }
+
+                    string plexToken = GetPlexTokenFromVarsSheet();
+                    if (string.IsNullOrWhiteSpace(plexToken))
+                    {
+                        Type("Plex token (paste X-Plex-Token): ", 0, 0, 0);
+                        plexToken = Console.ReadLine();
+                    }
+
+                    Type("Movies library section id (Enter for 1): ", 0, 0, 0);
+                    string secStr = Console.ReadLine();
+                    int sectionId = 1;
+                    if (!string.IsNullOrWhiteSpace(secStr)) int.TryParse(secStr, out sectionId);
+
+                    PlexRatingKeySheetPopulator.Summary ratingKeySummary = PlexRatingKeySheetPopulator.Run(
+                        sheetsService,
+                        SPREADSHEET_ID,
+                        MOVIES_TITLE_RANGE,
+                        MOVIES_DATA_RANGE,
+                        (t, msg, ind) => DisplayMessage(t, msg, ind),
+                        new PlexRatingKeySheetPopulator.Options
+                        {
+                            PlexBaseUrl = plexBase,
+                            PlexToken = plexToken,
+                            MoviesSectionId = sectionId,
+                            TmdbIdColumnLetterFallback = "CF",
+                            PlexRatingKeyColumnLetterFallback = "CG",
+                            ImdbIdColumnLetterFallback = "CN",
+                            QuickCreateHeaderName = QUICK_CREATE,
+                            QuickCreateValue = "X",
+                            OverwriteExistingRatingKeys = overwriteRatingKeys,
+                            MarkQuickCreateForWrittenRatingKeys = true
+                        });
+
+                    if (ratingKeySummary.QuickCreateRowNumbersMarked.Count > 0)
+                    {
+                        DisplayMessage("info", "Updating Plex metadata for rows marked Quick Create by ratingKey sync...", 2);
+                        PlexMetadataSheetUpdater.Summary metadataSummary = RunPlexMetadataSheetSync(sheetsService, ratingKeySummary.QuickCreateRowNumbersMarked);
+
+                        if (metadataSummary.RowsFailed == 0)
+                        {
+                            ClearMovieQuickCreateMarks(sheetsService, ratingKeySummary.QuickCreateRowNumbersMarked);
+                        }
+                        else
+                        {
+                            DisplayMessage("warning", "Leaving Quick Create marks in place because one or more targeted Plex metadata updates failed.", 2);
+                        }
+                    }
+                    else
+                    {
+                        DisplayMessage("info", "No ratingKey rows were marked Quick Create, so targeted Plex metadata sync was skipped.", 2);
+                    }
+                }
+                else if (choice.Equals(plexSyncMetadataChoice))
+                {
+                    Console.WriteLine();
+                    DisplayMessage("info", "60 - Syncing Plex labels (Tags/NFO Body <tag>), sort title, and plot from Movies sheet. Let's go!", 2);
+
+                    SheetsService sheetsService = CreateSheetsService();
+                    RunPlexMetadataSheetSync(sheetsService, null);
+                }
+                else if (choice.Equals(rebuildWebMoviesChoice))
+                {
+                    Console.WriteLine();
+                    DisplayMessage("info", "Rebuilding Web Movies from Movies sheet only. Let's go!", 2);
+
+                    SheetsService sheetsService = CreateSheetsService();
+
+                    ProfileRequestProcessor.RebuildWebMoviesOnly(
+                        sheetsService,
+                        SPREADSHEET_ID,
+                        (t, msg, ind) => DisplayMessage(t, msg, ind),
+                        new ProfileRequestProcessor.Options
+                        {
+                            MoviesSheetName = "Movies",
+                            MoviesHeaderRow = 2,
+                            MoviesDataStartRow = 3,
+                            WebMoviesSheetName = "Web Movies",
+                            WebMoviesHeaderRow = 1,
+                            WebMoviesDataStartRow = 2,
+                            WebMoviesStatusValue = "n"
+                        });
+                }
+                else if (choice.Equals(profileRequestProcessorChoice))
+                {
+                    Console.WriteLine();
+                    DisplayMessage("info", "Processing Profile Requests, rebuilding Web Movies, and refreshing media libraries. Let's go!", 2);
+
+                    SheetsService sheetsService = CreateSheetsService();
+
+                    var options = new ProfileRequestProcessor.Options
+                    {
+                        MoviesSheetName = "Movies",
+                        MoviesHeaderRow = 2,
+                        MoviesDataStartRow = 3,
+                        RequestsSheetName = "Profile Requests",
+                        RequestsHeaderRow = 1,
+                        RequestsDataStartRow = 2,
+                        ArchiveSheetName = "Profile Requests Archive",
+                        WebMoviesSheetName = "Web Movies",
+                        SyncQuickCreateMovieMetadata = rowNumbers =>
+                        {
+                            DisplayMessage("info", "Updating Plex metadata for Quick Create Movies rows before selected NFO recreation...", 2);
+                            RunPlexMetadataSheetSync(sheetsService, rowNumbers);
+                        },
+                        RecreateSelectedMovieNfoFiles = RunSelectedMovieNfoFiles
+                    };
+
+                    options.MediaServers.Add(new ProfileRequestProcessor.MediaServerOptions
+                    {
+                        Name = "Emby",
+                        BaseUrl = GetEmbyServerUrl(),
+                        ApiKey = GetEmbyApiKey(),
+                        LibraryItemId = GetEmbyMoviesLibraryId(),
+                        ApiPathPrefix = "emby"
+                    });
+
+                    string jellyfinUrl = Environment.GetEnvironmentVariable("JELLYFIN_SERVER_URL");
+                    string jellyfinApiKey = Environment.GetEnvironmentVariable("JELLYFIN_API_KEY");
+                    string jellyfinMoviesLibraryId = Environment.GetEnvironmentVariable("JELLYFIN_MOVIES_LIBRARY_ID");
+                    if (!string.IsNullOrWhiteSpace(jellyfinUrl) &&
+                        !string.IsNullOrWhiteSpace(jellyfinApiKey) &&
+                        !string.IsNullOrWhiteSpace(jellyfinMoviesLibraryId))
+                    {
+                        options.MediaServers.Add(new ProfileRequestProcessor.MediaServerOptions
+                        {
+                            Name = "Jellyfin",
+                            BaseUrl = jellyfinUrl,
+                            ApiKey = jellyfinApiKey,
+                            LibraryItemId = jellyfinMoviesLibraryId,
+                            ApiPathPrefix = ""
+                        });
+                    }
+
+                    ProfileRequestProcessor.Run(
+                        sheetsService,
+                        SPREADSHEET_ID,
+                        (t, msg, ind) => DisplayMessage(t, msg, ind),
+                        options);
+                }
+                else if (choice.Equals(fullMovieHealthCheck))
+                {
+                    Console.WriteLine();
+                    DisplayMessage("info", "Check full video health (single file or entire folder). Let's go!", 2);
+
+                    VideoHealthCheck.FullMovieHealthCheck();
+                }
+                else if (choice.Equals(audioCompatibilityConverterChoice))
+                {
+                    Console.WriteLine();
+                    DisplayMessage("info", "FFmpeg audio compatibility converter. Let's go!", 2);
+
+                    AudioCompatibilityConverter.RunInteractive(
+                        (t, msg, ind) => DisplayMessage(t, msg, ind),
+                        DriveMapping.GetAllSrtScanLocations());
+                }
+                else if (choice.Equals(audioCensorRunnerChoice))
+                {
+                    Console.WriteLine();
+                    DisplayMessage("info", "Audio censor subtitle scan. Let's go!", 2);
+
+                    AudioCensorRunner.RunInteractive(
+                        (t, msg, ind) => DisplayMessage(t, msg, ind));
                 }
                 else if (choice.Equals(fetchTvShowPlotsChoice)) // Fetch TV Show episode plots from TVDB.
                 {
@@ -1184,7 +2198,7 @@ namespace SheetsQuickstart
 
                     IList<IList<Object>> videoData = CallGetData(combinedEpisodeSheetVariables, COMBINED_EPISODES_TITLE_RANGE, COMBINED_EPISODES_DATA_RANGE);
 
-                    BachFlixNfo.InputTvShowPlots(videoData, combinedEpisodeSheetVariables);
+                    BachFlixNfo.BachFlixNfo.InputTvShowPlots(videoData, combinedEpisodeSheetVariables);
 
                 }
                 else if (choice.Equals(fixRecordedNamesChoice)) // Fix recorded names.
@@ -1196,7 +2210,7 @@ namespace SheetsQuickstart
                     {
                         IList<IList<Object>> videoData = CallGetData(recordedNamesSheetVariables, RECORDED_NAMES_TITLE_RANGE, RECORDED_NAMES_DATA_RANGE);
 
-                        BachFlixNfo.FixRecordedNames(videoData, recordedNamesSheetVariables, directory);
+                        BachFlixNfo.BachFlixNfo.FixRecordedNames(videoData, recordedNamesSheetVariables, directory);
                     }
 
                 }
@@ -1290,7 +2304,7 @@ namespace SheetsQuickstart
                         TrimTitlesInDirectory(directory);
                         CreateFoldersAndMoveFiles(directory);
                     }
-                } 
+                }
                 else if (choice.Equals(insertMissingMovieDataChoice))
                 {
                     Type("Insert missing movie data into the Google Sheet. Let's go!", 0, 0, 2);
@@ -1305,6 +2319,10 @@ namespace SheetsQuickstart
                     DisplayMessage("success", "Done", 2);
                     DisplayMessage("warning", "Now looking through sheet data for auto populated data... ");
                     CopyAutoPopulatedData(movieData, movieSheetVariables);
+                    DisplayMessage("success", "Done", 2);
+                    DisplayMessage("warning", "Now looking through sheet data for missing runtimes... ");
+                    movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                    InputMovieRuntimes(movieData, movieSheetVariables);
                     DisplayMessage("success", "Done", 2);
                 }
                 else if (choice.Equals(repeatInsertMissingMovieDataChoice))
@@ -1330,11 +2348,16 @@ namespace SheetsQuickstart
                             Countdown(300);
                             movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
                             DisplayMessage("info", "Let's try again.");
-                        } else
+                        }
+                        else
                         {
                             repeatDataCall = false;
                         }
                     } while (repeatDataCall);
+                    DisplayMessage("warning", "Now looking through sheet data for missing runtimes... ");
+                    movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                    InputMovieRuntimes(movieData, movieSheetVariables);
+                    DisplayMessage("success", "Done", 2);
 
                     DisplayMessage("success", "Done", 2);
                 }
@@ -1664,6 +2687,414 @@ namespace SheetsQuickstart
             }
         } // End CallSwitch()
 
+        private static bool IsSrtFile(string fileName)
+        {
+            return string.Equals(Path.GetExtension(fileName), ".srt", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool HasEngSrtFlag(string fileName)
+        {
+            string srtName = Path.GetFileNameWithoutExtension(fileName);
+            return !string.IsNullOrWhiteSpace(srtName) && SrtEngFlagRegex.IsMatch(srtName);
+        }
+
+        private static bool IsForcedSrtFile(string fileName)
+        {
+            string srtName = Path.GetFileNameWithoutExtension(fileName);
+            return !string.IsNullOrWhiteSpace(srtName) && SrtForcedFlagRegex.IsMatch(srtName);
+        }
+
+        private static string BuildEngSrtRenameTarget(string fileName)
+        {
+            if (!IsSrtFile(fileName) || HasEngSrtFlag(fileName))
+                return null;
+
+            string directory = Path.GetDirectoryName(fileName);
+            string srtName = Path.GetFileNameWithoutExtension(fileName);
+            string extension = Path.GetExtension(fileName);
+
+            if (string.IsNullOrWhiteSpace(srtName))
+                return null;
+
+            string newSrtName = SrtLanguageTokenRegex.Replace(srtName, "${sep}eng", 1);
+
+            if (string.Equals(srtName, newSrtName, StringComparison.OrdinalIgnoreCase) && IsForcedSrtFile(fileName))
+            {
+                newSrtName = SrtForcedFlagRegex.Replace(
+                    srtName,
+                    match => ".eng" + match.Groups[1].Value + "forced" + match.Groups[2].Value,
+                    1);
+            }
+
+            if (string.Equals(srtName, newSrtName, StringComparison.OrdinalIgnoreCase))
+                newSrtName = srtName + ".eng";
+
+            return Path.Combine(directory ?? "", newSrtName + extension);
+        }
+
+        public static void displayMissingEngResults()
+        {
+            Console.WriteLine();
+            DisplayMessage("info", "That's the end of it.");
+            DisplayMessage("data", "Of the: ", 0);
+            DisplayMessage("log", fileEntriesCount.ToString(), 0);
+            DisplayMessage("data", " file entries.");
+            DisplayMessage("log", srtEntriesCount.ToString(), 0);
+            DisplayMessage("data", " of them were SRT files");
+            DisplayMessage("log", missingEng.Count().ToString(), 0);
+            DisplayMessage("data", " of the SRT files were missing the ENG flag.", 2);
+
+            if (missingEng.Count() > 0)
+            {
+                DisplayMessage("log", "Press 1 to view the list, press 0 to exit");
+                var keepAsking = true;
+
+                do
+                {
+                    var response = Console.ReadLine();
+
+                    if (response == "0")
+                    {
+                        keepAsking = false;
+                    }
+                    else if (response == "1")
+                    {
+                        foreach (var missingEngDirectory in missingEng)
+                        {
+                            DisplayMessage("warning", missingEngDirectory);
+                        }
+
+                        Console.WriteLine();
+                        DisplayMessage("info", "Would you like to fix these names? 1=Yes or 2=No");
+
+                        var fixResponse = Console.ReadLine();
+
+                        if (fixResponse == "1")
+                        {
+                            foreach (var fixDirectory in missingEng)
+                            {
+                                if (fixDirectory.ToUpper().Contains("-TRAILER"))
+                                {
+                                    File.Delete(fixDirectory);
+                                    DisplayMessage("warning", "We detected a trailer subtitle file and deleted it:");
+                                    DisplayMessage("info", fixDirectory.ToString(), 2);
+                                    continue;
+                                }
+                                var newName = BuildEngSrtRenameTarget(fixDirectory);
+
+                                if (string.IsNullOrWhiteSpace(newName) ||
+                                    string.Equals(fixDirectory, newName, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    DisplayMessage("warning", "Skipping SRT because it does not need an ENG rename:");
+                                    DisplayMessage("info", fixDirectory.ToString(), 2);
+                                    continue;
+                                }
+
+                                if (File.Exists(newName))
+                                {
+                                    DisplayMessage("error", "There appears to already be a file named:");
+                                    DisplayMessage("harderror", newName);
+                                    DisplayMessage("error", "Please navigate to the containing folder and decide which file you want to keep.", 2);
+                                }
+                                else
+                                {
+                                    File.Move(fixDirectory, newName);
+                                    Type(fixDirectory, 0, 0, 0);
+                                    Type(" renamed to:", 0, 0, 1, "Green");
+                                    Type(newName, 0, 0, 2);
+                                }
+                            }
+                        }
+                        keepAsking = false;
+                    }
+                    else
+                    {
+                        Type("That wasn't an option, try again.", 0, 0, 1);
+                    }
+                } while (keepAsking);
+            }
+            // Clear the variables
+            missingEng.Clear();
+            fileEntriesCount = 0;
+            srtEntriesCount = 0;
+            missingEngCount = 0;
+        }
+
+        private static void WriteJsonLog(string path, RenameTransactionLog log)
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(dir))
+                Directory.CreateDirectory(dir);
+
+            var serializer = new DataContractJsonSerializer(typeof(RenameTransactionLog));
+            using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                serializer.WriteObject(fs, log);
+            }
+        }
+
+        private static RenameTransactionLog ReadJsonLog(string path)
+        {
+            var serializer = new DataContractJsonSerializer(typeof(RenameTransactionLog));
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                return (RenameTransactionLog)serializer.ReadObject(fs);
+            }
+        }
+
+        // Drag-drop paths often come in wrapped in quotes
+        private static string CleanPath(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return input;
+            input = input.Trim();
+            if (input.StartsWith("\"") && input.EndsWith("\"") && input.Length >= 2)
+                input = input.Substring(1, input.Length - 2);
+            return input;
+        }
+
+        private static void NormalizeSeasonEpisodesSmart_WithLog(string directory, bool dryRun = true)
+        {
+            if (!Directory.Exists(directory))
+            {
+                Console.WriteLine($"[ERR] Directory not found: {directory}");
+                return;
+            }
+
+            var epRegex = new Regex(
+                @"S(?<season>\d{2})E(?<ep>\d{2})(?:-E(?<ep2>\d{2}))?",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+            var mkvs = Directory.GetFiles(directory, "*.mkv", SearchOption.TopDirectoryOnly);
+
+            var entries = new List<(string MkvPath, int Season, int Ep, bool IsCombined)>();
+
+            foreach (var mkv in mkvs)
+            {
+                var name = Path.GetFileNameWithoutExtension(mkv);
+                var m = epRegex.Match(name);
+                if (!m.Success) continue;
+
+                int season = int.Parse(m.Groups["season"].Value);
+                int ep = int.Parse(m.Groups["ep"].Value);
+
+                // Combined heuristic: underscore OR already has -E##
+                bool isCombined = name.Contains("_") || m.Groups["ep2"].Success;
+
+                entries.Add((mkv, season, ep, isCombined));
+            }
+
+            if (entries.Count == 0)
+            {
+                Console.WriteLine("[WARN] No MKVs with SxxEyy pattern found.");
+                return;
+            }
+
+            entries = entries
+                .OrderBy(e => e.Season)
+                .ThenBy(e => e.Ep)
+                .ToList();
+
+            int counter = entries.Min(e => e.Ep);
+
+            Console.WriteLine($"[INFO] Starting episode counter at: E{counter:D2}");
+            Console.WriteLine(dryRun ? "[INFO] DRY RUN (no files will be moved)\n" : "[INFO] LIVE RUN\n");
+
+            // --- Create the log object now (even dry run can log "planned moves" if you want)
+            var log = new RenameTransactionLog
+            {
+                createdUtc = DateTime.UtcNow.ToString("o"),
+                mode = "NormalizeSeasonEpisodesSmart",
+                sourceDirectory = directory,
+                dryRun = dryRun
+            };
+
+            foreach (var entry in entries)
+            {
+                string mkvPath = entry.MkvPath;
+                string baseName = Path.GetFileNameWithoutExtension(mkvPath);
+
+                string newToken = entry.IsCombined
+                    ? $"S{entry.Season:D2}E{counter:D2}-E{counter + 1:D2}"
+                    : $"S{entry.Season:D2}E{counter:D2}";
+
+                // Rename all sidecars: base.* (mkv, srt, nfo, etc)
+                string[] sidecars = Directory.GetFiles(directory, baseName + ".*", SearchOption.TopDirectoryOnly);
+
+                foreach (var path in sidecars)
+                {
+                    string fileNameOnly = Path.GetFileName(path);
+
+                    if (!epRegex.IsMatch(fileNameOnly))
+                        continue;
+
+                    string newFileNameOnly = epRegex.Replace(fileNameOnly, newToken, 1);
+                    if (newFileNameOnly.Equals(fileNameOnly, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    string newFullPath = Path.Combine(directory, newFileNameOnly);
+
+                    Console.WriteLine(entry.IsCombined ? "[COMBINE]" : "[SINGLE]");
+                    Console.WriteLine($"  {fileNameOnly}");
+                    Console.WriteLine($"  -> {newFileNameOnly}\n");
+
+                    // Record the move in the log (even in dry run; you can change this if you only want real moves)
+                    log.moves.Add(new RenameMove { from = path, to = newFullPath });
+
+                    if (!dryRun)
+                    {
+                        if (File.Exists(newFullPath))
+                        {
+                            Console.WriteLine($"[ERR] Target already exists, skipping: {newFullPath}\n");
+                            continue;
+                        }
+
+                        File.Move(path, newFullPath);
+                    }
+                }
+
+                counter += entry.IsCombined ? 2 : 1;
+            }
+
+            // --- Write log to your folder
+            string logDir = @"C:\Users\Brandon\Desktop\BachFlixNfo Logs\Combine Episodes";
+            Directory.CreateDirectory(logDir);
+
+            string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+
+            ExtractShowAndSeasonFromPath(directory, out string showName, out string seasonLabel);
+
+            string modeTag = dryRun ? "DRYRUN" : "LIVE";
+            string logFileName = $"{showName} - {seasonLabel} - {modeTag} - {stamp}.json";
+
+            string logPath = Path.Combine(logDir, logFileName);
+            WriteJsonLog(logPath, log);
+
+            Console.WriteLine($"[OK] Log written: {logPath}");
+        }
+
+        private static void ExtractShowAndSeasonFromPath(
+            string directory,
+            out string showName,
+            out string seasonLabel
+        )
+        {
+            showName = "Unknown Show";
+            seasonLabel = "Season ??";
+
+            if (string.IsNullOrWhiteSpace(directory))
+                return;
+
+            try
+            {
+                var dirInfo = new DirectoryInfo(directory);
+
+                // Last folder should be "Season 01"
+                if (dirInfo.Name.StartsWith("Season", StringComparison.OrdinalIgnoreCase))
+                {
+                    seasonLabel = dirInfo.Name;
+
+                    // Parent folder should be the show name
+                    if (dirInfo.Parent != null)
+                    {
+                        showName = dirInfo.Parent.Name;
+                    }
+                }
+            }
+            catch
+            {
+                // Fail silently and keep defaults
+            }
+
+            showName = SanitizeForFileName(showName);
+            seasonLabel = SanitizeForFileName(seasonLabel);
+        }
+
+
+        private static string SanitizeForFileName(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return "Unknown";
+
+            foreach (char c in Path.GetInvalidFileNameChars())
+                input = input.Replace(c, ' ');
+
+            // collapse double spaces
+            input = Regex.Replace(input, @"\s+", " ").Trim();
+
+            return input;
+        }
+
+        private static void RevertEpisodeCombineFromLog()
+        {
+            Console.WriteLine("Drag/drop the JSON log file to revert, then press Enter:");
+            string input = Console.ReadLine();
+            string logPath = CleanPath(input);
+
+            if (string.IsNullOrWhiteSpace(logPath) || !File.Exists(logPath))
+            {
+                Console.WriteLine("[ERR] Log file not found.");
+                return;
+            }
+
+            RenameTransactionLog log;
+            try
+            {
+                log = ReadJsonLog(logPath);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("[ERR] Failed to read log JSON: " + ex.Message);
+                return;
+            }
+
+            if (log?.moves == null || log.moves.Count == 0)
+            {
+                Console.WriteLine("[WARN] Log contains no moves.");
+                return;
+            }
+
+            Console.WriteLine($"[INFO] Reverting {log.moves.Count} moves from log.");
+            Console.WriteLine($"[INFO] Source directory (for reference): {log.sourceDirectory}");
+            Console.WriteLine();
+
+            // Revert in reverse order to reduce collisions
+            foreach (var move in log.moves.AsEnumerable().Reverse())
+            {
+                string from = move.from; // original
+                string to = move.to;     // renamed
+
+                // Revert means: move "to" back to "from"
+                if (!File.Exists(to))
+                {
+                    Console.WriteLine($"[SKIP] Missing (already reverted?): {to}");
+                    continue;
+                }
+
+                // Avoid overwriting if something is already there
+                if (File.Exists(from))
+                {
+                    Console.WriteLine($"[ERR] Cannot revert, target exists: {from}");
+                    continue;
+                }
+
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(from));
+                    File.Move(to, from);
+
+                    Console.WriteLine("[OK] Reverted:");
+                    Console.WriteLine("  " + Path.GetFileName(to));
+                    Console.WriteLine("  -> " + Path.GetFileName(from));
+                    Console.WriteLine();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[ERR] Failed to revert {to} -> {from}: {ex.Message}");
+                }
+            }
+
+            Console.WriteLine("[DONE] Revert attempt complete.");
+        }
+
         public static void CreateMissingCombinedEpisodeNfoFiles(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, string directory)
         {
             try
@@ -1691,7 +3122,8 @@ namespace SheetsQuickstart
                                 if (Path.GetExtension(sourceFiles[i]) == ".srt")
                                 {
                                     srtVariables += ".eng";
-                                    if (sourceFiles[i].ToLower().Contains(".forced.")) {
+                                    if (sourceFiles[i].ToLower().Contains(".forced."))
+                                    {
                                         srtVariables += ".forced";
                                     }
                                 }
@@ -2054,13 +3486,74 @@ namespace SheetsQuickstart
 
         } // End UpdateDbData()
 
+        private static void UpdateEpisodeNumbersInChosenDirectory(int episodeNumber = 1)
+        {
+            var directory = AskForDirectory("Give me the directory full of TV show episodes.");
+            if (directory != "0")
+            {
+                // Grab all files in the directory.
+                Type("Grabbing all MKV files... ", 0, 0, 0, "Yellow");
+                string[] fileEntries = Directory.GetFiles(directory, "*.mkv");
+                Type("DONE", 0, 0, 2, "Green");
+
+                if (fileEntries.Count() == 0)
+                {
+                    Type("No videos found! Are they the right format?", 0, 0, 2, "Yellow");
+                }
+
+                string pattern = @"S(\d{2})E(\d{2,3})";
+
+                foreach (var originalFile in fileEntries)
+                {
+                    string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(originalFile);
+
+                    string searchString = $"*{fileNameWithoutExtension}*";
+
+                    string[] filteredEntries = Directory.GetFiles(directory, searchString);
+
+                    foreach (var filteredFile in filteredEntries)
+                    {
+                        // Use regex to check if the file name matches the expected pattern
+                        Match match = Regex.Match(filteredFile, pattern);
+
+                        if (match.Success)
+                        {
+                            string season = match.Groups[1].Value; // Preserve original season
+
+                            string replacement = $"S{season}E{episodeNumber:D2}";
+
+                            // Combine the folder path with the new file name
+                            string newFile = Regex.Replace(filteredFile, pattern, replacement);
+
+                            // Rename the file
+                            File.Move(filteredFile, newFile);
+                            Console.WriteLine($"Renamed:");
+                            Console.WriteLine(Path.GetFileName(filteredFile));
+                            Console.WriteLine(Path.GetFileName(newFile));
+                            Console.WriteLine();
+                        }
+                    }
+                    // Increment the starting episode by 2 for the next file
+                    episodeNumber++;
+                }
+
+                Type("DONE", 0, 0, 1, "Green");
+            }
+        }
+
         private static void InsertTvShowDirectorySizesIntoDbSheet(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, bool overwriteData)
         {
             string message = overwriteData ? "Overwriting TV Show directory sizes..." : "Inserting missing TV Show directory sizes...";
 
+            BatchUpdateValuesRequest batchRequest = new BatchUpdateValuesRequest
+            {
+                ValueInputOption = "USER_ENTERED",
+                Data = new List<ValueRange>() // Initialize the list
+            };
+
             DisplayMessage("warning", message);
-            string[] parentFolders = { "TV Shows", "Kids TV Shows" };
-            string[] networkFolders = { "#-B", "C-F", "G-L", "M-R and Other", "S-Z" };
+            string[] parentFolders = { "TV Shows", @"The Bus\TV Shows" };
+            string[] networkFolders = { "#-B", "C-D", "E-I", "J-M", "N-R", "S", "T-Z", "Other" };
             string cleanName = "";
 
             foreach (var row in data)
@@ -2137,24 +3630,41 @@ namespace SheetsQuickstart
 
                                 if (formattedSize != size)
                                 {
-                                    string strCellToPutData = "DB!" + ColumnNumToLetter(sizeColumnNum) + rowNum;
-                                    WriteSingleCellToSheet(formattedSize, strCellToPutData);
-                                    if (overwriteData)
+                                    try
                                     {
-                                        Type("Successfully overwrote the previous size from: ", 0, 0, 0, "Green");
-                                        Type(size, 0, 0, 0, "Yellow");
-                                        Type(" to ", 0, 0, 0, "Green");
-                                        Type(formattedSize, 0, 0, 0, "Blue");
-                                        Type(" at: ", 0, 0, 0, "Green");
+                                        string strCellToPutData = "DB!" + ColumnNumToLetter(sizeColumnNum) + rowNum;
+
+                                        batchRequest.Data.Add(new ValueRange
+                                        {
+                                            Range = strCellToPutData,
+                                            MajorDimension = "ROWS",
+                                            Values = new List<IList<object>> { new List<object> { formattedSize } }
+                                        });
+
+                                        if (overwriteData)
+                                        {
+                                            Type("Successfully overwrote the previous size from: ", 0, 0, 0, "Green");
+                                            Type(size, 0, 0, 0, "Yellow");
+                                            Type(" to ", 0, 0, 0, "Green");
+                                            Type(formattedSize, 0, 0, 0, "Blue");
+                                            Type(" at: ", 0, 0, 0, "Green");
+                                        }
+                                        else
+                                        {
+                                            Type(formattedSize, 0, 0, 0, "Blue");
+                                            Type(" Successfully saved at: ", 0, 0, 0, "Green");
+                                        }
+                                        Type(strCellToPutData, 0, 0, 0, "Blue");
+                                        Type(" For: ", 0, 0, 0, "Green");
+                                        Type(cleanNameWithYear, 0, 0, 1, "Blue");
                                     }
-                                    else
+                                    catch (Exception ex)
                                     {
-                                        Type(formattedSize, 0, 0, 0, "Blue");
-                                        Type(" Successfully saved at: ", 0, 0, 0, "Green");
+                                        DisplayMessage("error", "An error occured saving the folder size for: ", 0);
+                                        DisplayMessage("warning", cleanNameWithYear);
+                                        DisplayMessage("harderror", ex.Message);
                                     }
-                                    Type(strCellToPutData, 0, 0, 0, "Blue");
-                                    Type(" For: ", 0, 0, 0, "Green");
-                                    Type(cleanNameWithYear, 0, 0, 1, "Blue");
+
                                 }
                                 else
                                 {
@@ -2166,7 +3676,13 @@ namespace SheetsQuickstart
                                 if (foundLocationsList[0].ToString() != foundLocations)
                                 {
                                     string strCellToPutData = "DB!" + ColumnNumToLetter(foundLocationsColumnNum) + rowNum;
-                                    WriteSingleCellToSheet(string.Join(",", foundLocationsList), strCellToPutData);
+
+                                    batchRequest.Data.Add(new ValueRange
+                                    {
+                                        Range = strCellToPutData,
+                                        MajorDimension = "ROWS",
+                                        Values = new List<IList<object>> { new List<object> { string.Join(",", foundLocationsList) } }
+                                    });
                                 }
                             }
                             else
@@ -2193,11 +3709,19 @@ namespace SheetsQuickstart
                     Type(e.Message, 0, 0, 2, "DarkRed");
                 }
             }
+            var BatchUpdateValuesResponse = BulkWriteToSheet(batchRequest);
+            DisplayMessage("info", "Looks like that's it.", 2);
         }
 
         private static void InsertMovieDirectorySizesIntoMoviesSheet(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, bool overwriteData)
         {
             string message = overwriteData ? "Overwriting Movie directory sizes..." : "Inserting missing Movie directory sizes...";
+
+            BatchUpdateValuesRequest batchRequest = new BatchUpdateValuesRequest
+            {
+                ValueInputOption = "USER_ENTERED",
+                Data = new List<ValueRange>() // Initialize the list
+            };
 
             DisplayMessage("warning", message);
             string imdbTitle = "",
@@ -2232,24 +3756,43 @@ namespace SheetsQuickstart
 
                                 if (formattedSize != size)
                                 {
-                                    string strCellToPutData = "Movies!" + ColumnNumToLetter(sizeColumnNum) + rowNum;
-                                    WriteSingleCellToSheet(formattedSize, strCellToPutData);
-                                    if (overwriteData)
+                                    try
                                     {
-                                        Type("Successfully overwrote the previous size from: ", 0, 0, 0, "Green");
-                                        Type(size, 0, 0, 0, "Yellow");
-                                        Type(" to ", 0, 0, 0, "Green");
-                                        Type(formattedSize, 0, 0, 0, "Blue");
-                                        Type(" at: ", 0, 0, 0, "Green");
+                                        string strCellToPutData = "Movies!" + ColumnNumToLetter(sizeColumnNum) + rowNum;
+
+                                        batchRequest.Data.Add(new ValueRange
+                                        {
+                                            Range = strCellToPutData,
+                                            MajorDimension = "ROWS",
+                                            Values = new List<IList<object>> { new List<object> { formattedSize } }
+                                        });
+
+                                        if (overwriteData)
+                                        {
+                                            Type("Successfully overwrote the previous size from: ", 0, 0, 0, "Green");
+                                            Type(size, 0, 0, 0, "Yellow");
+                                            Type(" to ", 0, 0, 0, "Green");
+                                            Type(formattedSize, 0, 0, 0, "Blue");
+                                            Type(" at: ", 0, 0, 0, "Green");
+                                        }
+                                        else
+                                        {
+                                            Type(formattedSize, 0, 0, 0, "Blue");
+                                            Type(" Successfully saved at: ", 0, 0, 0, "Green");
+                                        }
+                                        Type(strCellToPutData, 0, 0, 0, "Blue");
+                                        Type(" For: ", 0, 0, 0, "Green");
+                                        Type(imdbTitle, 0, 0, 1, "Blue");
                                     }
-                                    else
+                                    catch (Exception ex)
                                     {
-                                        Type(formattedSize, 0, 0, 0, "Blue");
-                                        Type(" Successfully saved at: ", 0, 0, 0, "Green");
+                                        DisplayMessage("error", "An error occured saving the folder size for: ", 0);
+                                        DisplayMessage("warning", imdbTitle);
+                                        DisplayMessage("harderror", ex.Message);
                                     }
-                                    Type(strCellToPutData, 0, 0, 0, "Blue");
-                                    Type(" For: ", 0, 0, 0, "Green");
-                                    Type(imdbTitle, 0, 0, 1, "Blue");
+
+
+
                                 }
                                 else
                                 {
@@ -2273,6 +3816,738 @@ namespace SheetsQuickstart
                     Type(e.Message, 0, 0, 2, "DarkRed");
                 }
             }
+            var BatchUpdateValuesResponse = BulkWriteToSheet(batchRequest);
+            DisplayMessage("info", "Looks like that's it.", 2);
+        }
+
+        protected static void FillInFileTypes(IList<IList<object>> data, Dictionary<string, int> sheetVariables, bool overwrite)
+        {
+            string message = overwrite
+                ? "Overwriting File Types in Movies sheet..."
+                : "Adding missing File Types to Movies sheet...";
+
+            DisplayMessage("warning", message);
+
+            BatchUpdateValuesRequest batchRequest = new BatchUpdateValuesRequest
+            {
+                ValueInputOption = "USER_ENTERED",
+                Data = new List<ValueRange>()
+            };
+
+            int rowNumCol = sheetVariables[ROW_NUM];
+            int statusCol = sheetVariables["Status"];
+            int directoryCol = sheetVariables["Directory"];
+            int fileTypeCol = sheetVariables["File Type"];
+            int imdbTitleCol = sheetVariables["IMDB Title"];
+
+            foreach (var row in data)
+            {
+                try
+                {
+                    // Make sure row is long enough to contain File Type column
+                    if (row.Count <= fileTypeCol)
+                        continue;
+
+                    string rowNum = row[rowNumCol].ToString();
+                    string status = row[statusCol].ToString();
+                    string directory = row[directoryCol].ToString();
+                    string currentType = row[fileTypeCol].ToString();
+                    string imdbTitle = row[imdbTitleCol].ToString();
+
+                    // Only touch movies with Status == "n"
+                    if (!status.Equals("n", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    // Directory must exist in sheet
+                    if (string.IsNullOrWhiteSpace(directory))
+                        continue;
+
+                    // Non-overwrite mode → only fill blanks
+                    if (!overwrite && !string.IsNullOrWhiteSpace(currentType))
+                        continue;
+
+                    // Let helper decide: extension / "0"
+                    string newType = DetectFileTypeFromDirectory(directory);
+
+                    if (string.IsNullOrEmpty(newType))
+                        newType = "0"; // ultra-safe fallback
+
+                    // Skip if nothing changed
+                    if (currentType == newType)
+                    {
+                        DisplayMessage("info", $"File Type '{currentType}' already correct for: {imdbTitle}");
+                        continue;
+                    }
+
+                    string cellRange =
+                        "Movies!" + ColumnNumToLetter(fileTypeCol) + rowNum;
+
+                    batchRequest.Data.Add(new ValueRange
+                    {
+                        Range = cellRange,
+                        MajorDimension = "ROWS",
+                        Values = new List<IList<object>> { new List<object> { newType } }
+                    });
+
+                    // Logging
+                    DisplayMessage("success", "File Type ", 0);
+                    DisplayMessage("info", newType, 0);
+
+                    if (overwrite && !string.IsNullOrWhiteSpace(currentType))
+                    {
+                        DisplayMessage("success", " overwritten from: ", 0);
+                        DisplayMessage("info", currentType, 0);
+                        DisplayMessage("success", " for: ", 0);
+                    }
+                    else
+                    {
+                        DisplayMessage("success", " saved for: ", 0);
+                    }
+
+                    DisplayMessage("info", imdbTitle, 0);
+                    DisplayMessage("log", " at- ", 0);
+                    DisplayMessage("info", cellRange);
+                }
+                catch (Exception e)
+                {
+                    DisplayMessage("error", "An error occured saving the File Type for this row.");
+                    DisplayMessage("harderror", e.Message);
+                }
+            }
+
+            if (batchRequest.Data.Count > 0)
+            {
+                BulkWriteToSheet(batchRequest);
+                DisplayMessage("info", "Looks like that's it.", 2);
+            }
+            else
+            {
+                DisplayMessage("warning", "No File Types needed updating.", 2);
+            }
+        }
+
+        private static string DetectFileTypeFromDirectory(string directory)
+        {
+            try
+            {
+                if (!Directory.Exists(directory))
+                {
+                    DisplayMessage("warning", $"Directory does not exist: {directory}");
+                    return "0";
+                }
+
+                // Grab all files and then filter using your existing helper
+                string[] fileEntries = Directory.GetFiles(directory);
+                ArrayList videoFiles = GrabMovieFiles(fileEntries, false);
+
+                var nonTrailerFiles = videoFiles
+                    .Cast<object>()
+                    .Select(v => v.ToString())
+                    .Where(path => !Path.GetFileName(path)
+                                       .ToLower()
+                                       .Contains("-trailer"))
+                    .ToList();
+
+                if (nonTrailerFiles.Count == 0)
+                {
+                    DisplayMessage("warning", $"No movie file found in: {directory}");
+                    return "0";
+                }
+
+                if (nonTrailerFiles.Count > 1)
+                {
+                    DisplayMessage("warning", $"Multiple movie files found in: {directory}");
+                    return "0";
+                }
+
+                // Exactly one
+                string ext = Path.GetExtension(nonTrailerFiles[0])
+                                    .ToLower()
+                                    .TrimStart('.');
+                return ext;
+            }
+            catch (Exception e)
+            {
+                DisplayMessage("error", $"Error scanning directory: {directory}");
+                DisplayMessage("harderror", e.Message);
+                return "0";
+            }
+        }
+
+        /// <summary>
+        /// Uses the Clean Title column from the Movies Google Sheet to rename movie files
+        /// and their corresponding SRT files in a chosen directory.
+        /// Matching logic:
+        ///   1) Try exact match on Clean Title (Title (Year))
+        ///   2) If no match, strip the year and match on title only
+        ///   3) If multiple title-only matches, ask user which one
+        ///   4) If still no match, ask user to paste a Clean Title from the sheet
+        /// </summary>
+        static void RenameMoviesAndSrtsFromSheet(
+            IList<IList<object>> movieData,
+            Dictionary<string, int> movieSheetVariables,
+            ArrayList movieFiles,
+            string rootDirectory)
+        {
+            var renameLog = new List<string>();
+
+            if (!movieSheetVariables.ContainsKey(CLEAN_TITLE) ||
+                movieSheetVariables[CLEAN_TITLE] < 0)
+            {
+                DisplayMessage("error", "Clean Title column not found in Movies sheet.");
+                return;
+            }
+
+            int cleanTitleIndex = movieSheetVariables[CLEAN_TITLE];
+            int imdbTitleIndex = movieSheetVariables.ContainsKey("IMDB Title")
+                ? movieSheetVariables["IMDB Title"]
+                : -1;
+
+            // ===== Build AllMovies list from the sheet =====
+            AllMovies = movieData
+                .Where(row => row.Count > cleanTitleIndex)
+                .Select(row => new SheetMovie
+                {
+                    CleanTitle = row[cleanTitleIndex]?.ToString()?.Trim() ?? ""
+                })
+                .Where(m => !string.IsNullOrEmpty(m.CleanTitle))
+                .ToList();
+
+            if (AllMovies.Count == 0)
+            {
+                DisplayMessage("error", "No Clean Titles found in Movies sheet.");
+                return;
+            }
+
+            // Also keep a simple list of Clean Titles for the manual fallback prompt
+            var allCleanTitles = AllMovies
+                .Select(m => m.CleanTitle)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            // ===== Process each movie file =====
+            foreach (string moviePath in movieFiles)
+            {
+                if (string.IsNullOrWhiteSpace(moviePath) || !File.Exists(moviePath)) continue;
+
+                string originalMoviePath = moviePath;
+                string originalFileName = Path.GetFileName(originalMoviePath);
+                string originalBase = Path.GetFileNameWithoutExtension(originalMoviePath);
+                originalBase = FixDuplicateYear(originalBase);
+
+                string folder = Path.GetDirectoryName(originalMoviePath) ?? rootDirectory;
+
+                bool isTrailer = IsTrailerFileName(originalBase);
+
+                // For matching ONLY, strip "trailer"/"teaser" so we can find the real title
+                string baseForMatching = isTrailer ? StripTrailerTokens(originalBase) : originalBase;
+
+                // Normalize filename for matching (handle underscores, extra spaces, etc.)
+                string normalizedBaseForMatch = NormalizeTitleForMatch(baseForMatching);
+
+                DisplayMessage("data", "");
+                DisplayMessage("data", isTrailer
+                    ? $"Processing trailer: {normalizedBaseForMatch}"
+                    : $"Processing movie: {normalizedBaseForMatch}");
+
+                // ===== 1) Try automatic matching using Clean Title logic =====
+                SheetMovie matchedMovie = FindBestMatchFromSheet(normalizedBaseForMatch);
+
+                // ===== 2) If still no match, ask user to paste a Clean Title =====
+                if (matchedMovie == null)
+                {
+                    string manualCleanTitle = AskUserForImdbTitle(normalizedBaseForMatch, allCleanTitles);
+                    if (manualCleanTitle == null)
+                    {
+                        renameLog.Add($"SKIP: {normalizedBaseForMatch} (no Clean Title selected)");
+                        DisplayMessage("warning", "Skipping this movie; no title selected.");
+                        continue;
+                    }
+
+                    matchedMovie = AllMovies
+                        .FirstOrDefault(m =>
+                            string.Equals(m.CleanTitle,
+                                          manualCleanTitle,
+                                          StringComparison.OrdinalIgnoreCase));
+
+                    if (matchedMovie == null)
+                    {
+                        renameLog.Add($"SKIP: {normalizedBaseForMatch} (manual Clean Title not found in sheet)");
+                        DisplayMessage("warning", "Clean Title not found in sheet, skipping.");
+                        continue;
+                    }
+                }
+
+                // ===== 3) Use Clean Title (Title (Year)) as final base name =====
+                string finalBaseTitle = matchedMovie.CleanTitle;
+
+                // IMPORTANT: trailers keep the movie Clean Title, but add the Plex suffix
+                if (isTrailer)
+                    finalBaseTitle = finalBaseTitle + "-trailer";
+
+                string sanitizedBase = SanitizeFileName(finalBaseTitle);
+
+                string currentMoviePath = originalMoviePath;
+                string targetMoviePath = Path.Combine(folder, sanitizedBase + Path.GetExtension(originalMoviePath));
+
+                string currentName = Path.GetFileName(currentMoviePath);
+                string targetName = Path.GetFileName(targetMoviePath);
+
+                bool movieRenamedOrAlreadyCorrect = false;
+
+                // ===== 4) Rename movie file if needed =====
+                if (string.Equals(currentMoviePath, targetMoviePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Same file path ignoring case, so this may be a capitalization-only fix
+                    if (!string.Equals(currentName, targetName, StringComparison.Ordinal))
+                    {
+                        string tempPath = Path.Combine(
+                            folder,
+                            Guid.NewGuid().ToString() + Path.GetExtension(originalMoviePath));
+
+                        File.Move(currentMoviePath, tempPath);
+                        File.Move(tempPath, targetMoviePath);
+
+                        renameLog.Add($"RENAMED MOVIE (case fix): {currentName} -> {targetName}");
+                        DisplayMessage("success", $"Fixed movie capitalization: {currentName} -> {targetName}");
+                    }
+                    else
+                    {
+                        DisplayMessage("info", $"Movie already correct: {currentName}");
+                    }
+
+                    movieRenamedOrAlreadyCorrect = true;
+                }
+                else if (!File.Exists(targetMoviePath))
+                {
+                    File.Move(currentMoviePath, targetMoviePath);
+
+                    renameLog.Add($"RENAMED MOVIE: {currentName} -> {targetName}");
+                    DisplayMessage("success", $"Renamed movie: {currentName} -> {targetName}");
+
+                    movieRenamedOrAlreadyCorrect = true;
+                }
+                else
+                {
+                    renameLog.Add($"SKIP MOVIE: target already exists: {targetName}");
+                    DisplayMessage("warning", $"Movie target already exists, skipping rename: {targetName}");
+                }
+
+                // ===== 5) Rename associated SRT files only if movie is now correct/aligned =====
+                if (movieRenamedOrAlreadyCorrect)
+                {
+                    RenameSrtsForMovie(originalBase, sanitizedBase, folder, renameLog);
+                }
+                else
+                {
+                    renameLog.Add($"SKIP SRT RENAME: {originalBase} -> {sanitizedBase} (movie rename skipped due to conflicting target)");
+                    DisplayMessage("warning", "Skipping SRT rename because movie rename was skipped due to an existing conflicting target.");
+                }
+            }
+
+            // ===== 6) Write log to disk =====
+            if (renameLog.Count > 0)
+            {
+                string path = BachFlixLog.WriteBachFlixLog(
+                    renameLog,
+                    category: "File Renamer",
+                    fileNamePrefix: "FileRenamer",
+                    out string err
+                );
+
+                if (path != null)
+                    DisplayMessage("success", $"Rename log saved to: {path}");
+                else
+                    DisplayMessage("error", $"Failed to write rename log: {err}");
+            }
+            else
+            {
+                DisplayMessage("info", "No changes were made; no log file created.");
+            }
+        }
+
+        private static string NormalizeUserPath(string rawInput)
+        {
+            if (string.IsNullOrWhiteSpace(rawInput))
+                return string.Empty;
+
+            // Trim whitespace first
+            string s = rawInput.Trim();
+
+            // Keep peeling off matching outer quotes (single or double)
+            bool changed = true;
+            while (changed && s.Length > 1)
+            {
+                changed = false;
+
+                if (s.StartsWith("\"") && s.EndsWith("\""))
+                {
+                    s = s.Substring(1, s.Length - 2).Trim();
+                    changed = true;
+                }
+                else if (s.StartsWith("'") && s.EndsWith("'"))
+                {
+                    s = s.Substring(1, s.Length - 2).Trim();
+                    changed = true;
+                }
+            }
+
+            return s;
+        }
+
+        private static string GetTitleWithoutYear(string cleanTitle)
+        {
+            if (string.IsNullOrWhiteSpace(cleanTitle)) return string.Empty;
+
+            var match = TitleYearRegex.Match(cleanTitle.Trim());
+            if (match.Success)
+            {
+                return match.Groups["title"].Value.Trim();
+            }
+
+            // If it doesn't follow "Title (YYYY)" pattern, just return trimmed
+            return cleanTitle.Trim();
+        }
+
+        /// <summary>
+        /// Fixes cases like "Title (2017) (2017)" -> "Title (2017)".
+        /// Only touches exactly repeated year-at-the-end patterns.
+        /// </summary>
+        private static string FixDuplicateYear(string title)
+        {
+            if (string.IsNullOrWhiteSpace(title)) return title;
+
+            return DuplicateYearRegex.Replace(title, "($1)");
+        }
+
+        class SheetMovie
+        {
+            public string CleanTitle { get; set; }
+        }
+
+        static List<SheetMovie> AllMovies;
+
+
+        private static SheetMovie FindBestMatchFromSheet(string fileBasedCleanTitle)
+        {
+            if (string.IsNullOrWhiteSpace(fileBasedCleanTitle))
+                return null;
+
+            // Fix weird cases like "Title (2017) (2017)"
+            fileBasedCleanTitle = FixDuplicateYear(fileBasedCleanTitle);
+
+            // Normalize the incoming filename-based title
+            var candidateFull = NormalizeForMatching(fileBasedCleanTitle);
+
+            // ===== 1. Exact match on Clean Title (title + year) =====
+            var exactMatch = AllMovies
+                .FirstOrDefault(m =>
+                    NormalizeForMatching(m.CleanTitle) == candidateFull);
+
+            if (exactMatch != null)
+            {
+                // Found perfect match, we're done
+                return exactMatch;
+            }
+
+            // ===== 2. Fallback: match by title only (ignore year) =====
+            var candidateTitleOnly = NormalizeForMatching(GetTitleWithoutYear(fileBasedCleanTitle));
+
+            var titleMatches = AllMovies
+                .Where(m =>
+                    NormalizeForMatching(GetTitleWithoutYear(m.CleanTitle)) == candidateTitleOnly)
+                .ToList();
+
+            if (titleMatches.Count == 0)
+            {
+                // No match even by title-only
+                return null;
+            }
+
+            if (titleMatches.Count == 1)
+            {
+                // Exactly one title-only match: assume it’s right
+                Console.WriteLine($"[INFO] No exact year match for \"{fileBasedCleanTitle}\",");
+                Console.WriteLine($"       but found single title match: \"{titleMatches[0].CleanTitle}\"");
+                return titleMatches[0];
+            }
+
+            // ===== 3. Multiple title-only matches: ask user =====
+            Console.WriteLine();
+            Console.WriteLine($"[INPUT] Multiple matches found for \"{candidateTitleOnly}\":");
+            for (int i = 0; i < titleMatches.Count; i++)
+            {
+                Console.WriteLine($"  {i + 1}) {titleMatches[i].CleanTitle}");
+            }
+            Console.WriteLine("  0) None of the above / skip");
+
+            while (true)
+            {
+                Console.Write("Select the correct movie # (or 0 to skip): ");
+                var input = Console.ReadLine();
+
+                if (int.TryParse(input, out int choice))
+                {
+                    if (choice == 0)
+                        return null;
+
+                    if (choice >= 1 && choice <= titleMatches.Count)
+                        return titleMatches[choice - 1];
+                }
+
+                Console.WriteLine("Invalid choice, please try again.");
+            }
+        }
+
+        private static string NormalizeForMatching(string title)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+                return string.Empty;
+
+            // Replace underscores (StreamFab)
+            title = title.Replace('_', ' ');
+
+            // Remove punctuation except letters/numbers/spaces
+            title = Regex.Replace(title, @"[^\w\s]", "");
+
+            // Collapse multiple spaces
+            title = Regex.Replace(title, @"\s+", " ").Trim();
+
+            return title.ToLowerInvariant();
+        }
+
+        private static string NormalizeTitleForMatch(string title)
+        {
+            if (string.IsNullOrWhiteSpace(title)) return string.Empty;
+
+            // 1) Replace StreamFab underscores with spaces
+            title = title.Replace('_', ' ');
+
+            // 2) Collapse multiple spaces
+            title = System.Text.RegularExpressions.Regex.Replace(title, @"\s+", " ");
+
+            // 3) Trim whitespace
+            return title.Trim();
+        }
+
+        /// <summary>
+        /// Prompt user when automatic match failed.
+        /// User pastes the IMDB Title exactly, or types 'skip'.
+        /// </summary>
+        static string AskUserForImdbTitle(string fileName, List<string> imdbTitles)
+        {
+            while (true)
+            {
+                DisplayMessage("warning", $"I can't find the match for \"{fileName}\", what do you suggest?");
+                Type("Paste the IMDB Title exactly as it appears in your Google Sheet, or type 'skip' to skip this file.", 0, 0, 1, "Yellow");
+                Type("> ", 0, 0, 0);
+                string input = Console.ReadLine()?.Trim();
+
+                if (string.IsNullOrEmpty(input))
+                {
+                    DisplayMessage("warning", "Empty input; please paste a title or type 'skip'.");
+                    continue;
+                }
+
+                if (string.Equals(input, "skip", StringComparison.OrdinalIgnoreCase))
+                {
+                    return null;
+                }
+
+                // First try exact match
+                var exact = imdbTitles
+                    .FirstOrDefault(t => string.Equals(t, input, StringComparison.OrdinalIgnoreCase));
+
+                if (exact != null)
+                {
+                    DisplayMessage("success", $"Using IMDB Title: {exact}");
+                    return exact;
+                }
+
+                // Then try "contains" to help the user find typos
+                var candidates = imdbTitles
+                    .Where(t => t.IndexOf(input, StringComparison.OrdinalIgnoreCase) >= 0)
+                    .Take(10)
+                    .ToList();
+
+                if (candidates.Count == 0)
+                {
+                    DisplayMessage("warning", "No matching titles found in the sheet. Try again or type 'skip'.");
+                    continue;
+                }
+
+                if (candidates.Count == 1)
+                {
+                    DisplayMessage("success", $"Found one candidate: {candidates[0]}");
+                    return candidates[0];
+                }
+
+                // Let user choose from multiple
+                Type("Multiple matches found:", 0, 0, 1, "Yellow");
+                for (int i = 0; i < candidates.Count; i++)
+                {
+                    Type($"  [{i + 1}] {candidates[i]}", 0, 0, 1);
+                }
+
+                Type("Choose a number (or 0 to try again): ", 0, 0, 0);
+                string choice = Console.ReadLine();
+
+                if (int.TryParse(choice, out int idx) &&
+                    idx >= 1 &&
+                    idx <= candidates.Count)
+                {
+                    string chosen = candidates[idx - 1];
+                    DisplayMessage("success", $"Using IMDB Title: {chosen}");
+                    return chosen;
+                }
+
+                DisplayMessage("warning", "Invalid choice. Let's try again.");
+            }
+        }
+
+        /// <summary>
+        /// For a given movie, find all SRT files in the folder that start with the original base name
+        /// and rename them to the normalized pattern based on detected type:
+        ///  - cc / closed captions -> .eng.cc.srt
+        ///  - forced              -> .eng.forced.srt
+        ///  - SDH / HOH           -> .eng.sdh.srt
+        ///  - otherwise           -> .eng.srt
+        /// </summary>
+        static void RenameSrtsForMovie(string originalBase, string finalBase, string folder, List<string> renameLog)
+        {
+            if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) return;
+
+            var srtFiles = Directory.GetFiles(folder, "*.srt", SearchOption.TopDirectoryOnly)
+                                    .Where(path =>
+                                    {
+                                        string srtBase = Path.GetFileNameWithoutExtension(path);
+                                        // Handle names like "Frankenstein (2025).en.closedcaptions.srt"
+                                        return srtBase.StartsWith(originalBase, StringComparison.OrdinalIgnoreCase) ||
+                                               srtBase.StartsWith(finalBase, StringComparison.OrdinalIgnoreCase);
+                                    })
+                                    .ToList();
+
+            if (!srtFiles.Any())
+            {
+                return;
+            }
+
+            foreach (var srtPath in srtFiles)
+            {
+                string oldName = Path.GetFileName(srtPath);
+                string lower = oldName.ToLowerInvariant();
+
+                SrtKind kind = DetectSrtKind(lower);
+
+                string newSrtName = BuildNewSrtName(finalBase, kind);
+                string newSrtPath = Path.Combine(folder, newSrtName);
+
+                // Already correct?
+                if (string.Equals(oldName, newSrtName, StringComparison.OrdinalIgnoreCase))
+                {
+                    renameLog.Add($"SRT: {oldName} (already correct)");
+                    continue;
+                }
+
+                if (File.Exists(newSrtPath))
+                {
+                    DisplayMessage("warning", $"SRT target already exists, skipping rename: {newSrtName}");
+                    renameLog.Add($"SKIP-SRT: {oldName} -> {newSrtName} (target exists)");
+                    continue;
+                }
+
+                File.Move(srtPath, newSrtPath);
+                DisplayMessage("success", $"Renamed SRT: {oldName} -> {newSrtName}", 1);
+                renameLog.Add($"SRT: {oldName} -> {newSrtName}");
+            }
+        }
+
+        enum SrtKind
+        {
+            Normal,
+            Sdh,
+            Cc,
+            Forced
+        }
+
+        /// <summary>
+        /// Detect if an SRT filename is SDH, CC, or forced based on keywords.
+        /// - Example mappings:
+        ///   Frankenstein (2025).en.closedcaptions.srt          -> CC
+        ///   Frankenstein (2025).en.forced.srt                 -> Forced
+        ///   Frankenstein (2025).en.STRIPPED_SDH.subtitles.srt -> SDH
+        /// </summary>
+        static SrtKind DetectSrtKind(string lowerFileName)
+        {
+            if (string.IsNullOrEmpty(lowerFileName)) return SrtKind.Normal;
+
+            if (lowerFileName.Contains("forced"))
+                return SrtKind.Forced;
+
+            if (lowerFileName.Contains("sdh") ||
+                lowerFileName.Contains("hearing") ||
+                lowerFileName.Contains("hard.of.hearing") ||
+                lowerFileName.Contains("hoh"))
+                return SrtKind.Sdh;
+
+            if (lowerFileName.Contains(".cc.") ||
+                lowerFileName.EndsWith(".cc.srt") ||
+                lowerFileName.Contains("closedcaption") ||
+                lowerFileName.Contains("closed_captions") ||
+                lowerFileName.Contains("closedcaptions") ||
+                lowerFileName.Contains("closed.captions"))
+                return SrtKind.Cc;
+
+            return SrtKind.Normal;
+        }
+
+        /// <summary>
+        /// Build final SRT filename using the IMDB Title base and detected kind.
+        /// </summary>
+        static string BuildNewSrtName(string baseTitle, SrtKind kind)
+        {
+            var sb = new StringBuilder();
+            sb.Append(baseTitle);
+            sb.Append(".eng");
+
+            switch (kind)
+            {
+                case SrtKind.Forced:
+                    sb.Append(".forced");
+                    break;
+                case SrtKind.Sdh:
+                    sb.Append(".sdh");
+                    break;
+                case SrtKind.Cc:
+                    sb.Append(".cc");
+                    break;
+                case SrtKind.Normal:
+                default:
+                    // no extra suffix
+                    break;
+            }
+
+            sb.Append(".srt");
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Simple Windows filename sanitizer: replaces invalid characters with ''.
+        /// </summary>
+        static string SanitizeFileName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return name;
+
+            var invalid = Path.GetInvalidFileNameChars();
+            var sb = new StringBuilder(name.Length);
+
+            foreach (var ch in name)
+            {
+                if (!invalid.Contains(ch))
+                    sb.Append(ch);
+            }
+
+            return sb.ToString().Trim();
         }
 
         private static void InsertMissingCombinedEpisodeData(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, string token)
@@ -3081,7 +5356,8 @@ namespace SheetsQuickstart
                                     DisplayMessage("error", "TVDB does not contain data for: ", 0);
                                     DisplayMessage("default", showName + " - S" + episodeSeasonNum + "E" + episodeNum);
                                 }
-                            } else
+                            }
+                            else
                             {
                                 string plot = response.data[0].overview.ToString().Trim(),
                                     name = response.data[0].episodeName.ToString().Trim();
@@ -3370,30 +5646,70 @@ namespace SheetsQuickstart
 
             foreach (string sourceFile in fileEntries)
             {
-                var fileName = Path.GetFileName(sourceFile.Replace("_eng", ".eng").Replace("_", ""));
-                var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(sourceFile.Replace("_eng", ".eng").Replace("_", ""));
-                var directoryName = Path.Combine(Path.GetDirectoryName(sourceFile), fileNameWithoutExtension.Replace("_eng", "").Replace(".eng.forced", "").Replace(".eng", ""));
-                var destinationFile = Path.Combine(directoryName, fileName);
+                string extension = Path.GetExtension(sourceFile).ToLowerInvariant();
+                string fileName = Path.GetFileName(sourceFile);
+                string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
+
+                string baseName = fileNameWithoutExtension; // fallback for movie files
+                string newFileName = fileName;
+
+                if (extension == ".srt")
+                {
+                    // Match pattern: base + optional language + optional flags
+                    Regex pattern = new Regex(
+                        @"^(?<base>.*?)([_\.](eng|en))?([_\.\-](forced))?([_\.\-](sdh))?$",
+                        RegexOptions.IgnoreCase
+                    );
+
+                    Match match = pattern.Match(fileNameWithoutExtension);
+
+                    if (match.Success)
+                    {
+                        baseName = match.Groups["base"].Value.Trim();
+
+                        bool hasForced = match.Groups[4].Success;
+                        bool hasSdh = match.Groups[6].Success;
+
+                        // Build normalized name: base.eng[.forced][.sdh].srt
+                        newFileName = baseName + ".eng";
+                        if (hasForced) newFileName += ".forced";
+                        if (hasSdh) newFileName += ".sdh";
+                        newFileName += ".srt";
+                    }
+                }
+                else
+                {
+                    // Non-subtitle file: use base name for folder
+                    baseName = Path.GetFileNameWithoutExtension(fileName);
+                }
+
+                // Build target movie folder (in this step, no letter folder yet)
+                string movieFolder = Path.Combine(
+                    Path.GetDirectoryName(sourceFile),
+                    baseName
+                );
 
                 try
                 {
-                    Directory.CreateDirectory(directoryName);
+                    Directory.CreateDirectory(movieFolder);
                 }
                 catch (Exception e)
                 {
-                    Type("Something went wrong while creating the directory: " + directoryName, 0, 0, 1, "Red");
+                    Type($"Something went wrong creating folder: {movieFolder}", 0, 0, 1, "Red");
                     Type(e.Message, 0, 0, 2, "DarkRed");
+                    continue; // skip moving if folder failed
                 }
+
+                string destinationFile = Path.Combine(movieFolder, newFileName);
 
                 try
                 {
                     File.Move(sourceFile, destinationFile);
-                    Type(fileName, 0, 0, 0);
-                    Type(" Moved", 0, 0, 1, "Green");
+                    Type($"Moved: {newFileName}", 0, 0, 1, "Green");
                 }
                 catch (Exception e)
                 {
-                    Type("Something went wrong while moving the file: " + fileName, 0, 0, 1, "Red");
+                    Type($"Something went wrong moving file: {newFileName}", 0, 0, 1, "Red");
                     Type(e.Message, 0, 0, 2, "DarkRed");
                 }
             }
@@ -3436,8 +5752,8 @@ namespace SheetsQuickstart
                     try
                     {
                         Directory.Move(sourcefolder, targetDirectory);
-                        Type(directoryName, 0, 0, 0);
-                        Type(" Moved", 0, 0, 1, "Green");
+                        Type("Moved into subfolder: ", 0, 0, 0, "Green");
+                        Type(directoryName, 0, 0, 1);
                     }
                     catch (Exception e)
                     {
@@ -3464,7 +5780,8 @@ namespace SheetsQuickstart
                             File.Move(f.FullName, Path.Combine(f.DirectoryName, f.Name.Substring(0, 30).Trim()) + f.Extension);
                             Type(f.Name, 0, 0, 0);
                             Type(" Trimmed", 0, 0, 1, "Green");
-                        } else
+                        }
+                        else
                         {
                             Type(f.Name, 0, 0, 0);
                             Type(" NOT Trimmed", 0, 0, 1, "Blue");
@@ -3488,9 +5805,10 @@ namespace SheetsQuickstart
             runningFileSize = 0;
         }
 
-        private static ArrayList GrabMovieFiles(string[] files)
+        private static ArrayList GrabMovieFiles(string[] files, bool showMessage = true)
         {
-            Type("Grabbing just the video files... ", 0, 0, 0, "Yellow");
+            if (showMessage) Type("Grabbing just the video files... ", 0, 0, 0, "Yellow");
+
             ArrayList videoFiles = new ArrayList();
 
             try
@@ -3502,7 +5820,7 @@ namespace SheetsQuickstart
                         videoFiles.Add(file);
                     }
                 }
-                Type("DONE", 0, 0, 1, "Green");
+                if (showMessage) Type("DONE", 0, 0, 1, "Green");
                 return videoFiles;
             }
             catch (Exception e)
@@ -3651,7 +5969,7 @@ namespace SheetsQuickstart
             { "Bytes", "KB", "MB", "GB", "TB", "PB" };
 
         /// <summary>
-        /// Returns a long number as a 
+        /// Returns a long number as a
         /// </summary>
         /// <param name="byes">The size in bytes to be converted to MB | GB etc.</param>
         /// <param name="returnSuffix">A bool to return the number with MB/GB count.</param>
@@ -3756,7 +6074,8 @@ namespace SheetsQuickstart
                                     if (tmdbResponse.item_present.ToString().ToUpper() == "TRUE")
                                     {
                                         movieIsInList = true;
-                                    } else
+                                    }
+                                    else
                                     {
                                         movieIsInList = false;
                                     }
@@ -3779,18 +6098,22 @@ namespace SheetsQuickstart
                                 {
                                     Type(CleanTitle + " | " + tmdbResponse.message, 0, 0, 1, "Green");
                                     intMoviesRemovedCount++;
-                                } else if (tmdbResponse.message != null)
+                                }
+                                else if (tmdbResponse.message != null)
                                 {
                                     Type(CleanTitle + " | " + tmdbResponse.message, 0, 0, 1, "Red");
-                                } else
+                                }
+                                else
                                 {
                                     Type("Something went wrong", 0, 0, 1, "Red");
                                 }
-                            } else
+                            }
+                            else
                             {
                                 intMoviesNotInListCount++;
                             }
-                        } else
+                        }
+                        else
                         {
                             intMoviesSkippedCount++;
                         }
@@ -3825,7 +6148,8 @@ namespace SheetsQuickstart
                 {
                     Type("Thank you!", 0, 0, 1, "Green");
                     invalidResponse = false;
-                } else
+                }
+                else
                 {
                     Type("Invalid response, try again..", 0, 0, 1, "Red");
                 }
@@ -3900,7 +6224,8 @@ namespace SheetsQuickstart
                                 {
                                     MoveDirectory(sourceDirectory, movieDirectory);
                                     moviesMovedCount++;
-                                } else
+                                }
+                                else
                                 {
                                     Type("We did not find the Directory in the other folders either.", 0, 0, 1, "Red");
                                     moviesNotFoundCount++;
@@ -3929,6 +6254,12 @@ namespace SheetsQuickstart
 
         protected static void InputTmdbId(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, int type)
         {
+            BatchUpdateValuesRequest batchRequest = new BatchUpdateValuesRequest
+            {
+                ValueInputOption = "USER_ENTERED",
+                Data = new List<ValueRange>() // Initialize the list
+            };
+
             string message = type == 1 ? "We will now insert missing TMDB IDs" : "We will now insert AND overwrite TMDB IDs";
             Type(message + "...", 0, 0, 1, "Gray");
             int intTmdbIdDoneCount = 0, intTmdbIdCorrectedCount = 0, intTmdbIdSkippedCount = 0, intTmdbIdNotFoundCount = 0, intRowNum = 3;
@@ -3979,16 +6310,17 @@ namespace SheetsQuickstart
 
                                 if (tmdbId != "")
                                 {
-                                    if (WriteSingleCellToSheet(tmdbId, strCellToPutData))
+                                    batchRequest.Data.Add(new ValueRange
                                     {
-                                        Type("TMDB ID saved for: " + ImdbTitle, 0, 0, 1, "Green");
-                                        intTmdbIdDoneCount++;
-                                    }
-                                    else
-                                    {
-                                        Type("An error occured!", 0, 0, 1, "Red");
-                                    }
-                                } else
+                                        Range = strCellToPutData,
+                                        MajorDimension = "ROWS",
+                                        Values = new List<IList<object>> { new List<object> { tmdbId } }
+                                    });
+
+                                    Type("TMDB ID saved for: " + ImdbTitle, 0, 0, 1, "Green");
+                                    intTmdbIdDoneCount++;
+                                }
+                                else
                                 {
                                     intTmdbIdNotFoundCount++;
                                 }
@@ -4045,33 +6377,34 @@ namespace SheetsQuickstart
                             {
                                 if (tmdbIdValue.Equals("")) // If the ID is missing insert it.
                                 {
-                                    if (WriteSingleCellToSheet(tmdbId, strCellToPutData))
+                                    batchRequest.Data.Add(new ValueRange
                                     {
-                                        Type("TMDB ID saved for: ", 0, 0, 0, "Gray");
-                                        Type(ImdbTitle, 0, 0, 1, "Green");
-                                        intTmdbIdDoneCount++;
-                                    }
-                                    else
-                                    {
-                                        Type("An error occured!", 0, 0, 1, "Red");
-                                    }
+                                        Range = strCellToPutData,
+                                        MajorDimension = "ROWS",
+                                        Values = new List<IList<object>> { new List<object> { tmdbId } }
+                                    });
+
+                                    Type("TMDB ID saved for: ", 0, 0, 0, "Gray");
+                                    Type(ImdbTitle, 0, 0, 1, "Green");
+                                    intTmdbIdDoneCount++;
+
                                 }
                                 else if (tmdbIdValue != tmdbId) // Or if the new ID doesn't equal the old one overwrite it.
                                 {
-                                    if (WriteSingleCellToSheet(tmdbId, strCellToPutData))
+                                    batchRequest.Data.Add(new ValueRange
                                     {
-                                        Type("TMDB ID corrected for: ", 0, 0, 0, "Gray");
-                                        Type(ImdbTitle, 0, 0, 0, "Blue");
-                                        Type(" From: ", 0, 0, 0, "Gray");
-                                        Type(tmdbIdValue, 0, 0, 0, "Blue");
-                                        Type(" To: ", 0, 0, 0, "Gray");
-                                        Type(tmdbId, 0, 0, 1, "Blue");
-                                        intTmdbIdCorrectedCount++;
-                                    }
-                                    else
-                                    {
-                                        Type("An error occured!", 0, 0, 1, "Red");
-                                    }
+                                        Range = strCellToPutData,
+                                        MajorDimension = "ROWS",
+                                        Values = new List<IList<object>> { new List<object> { tmdbId } }
+                                    });
+
+                                    Type("TMDB ID corrected for: ", 0, 0, 0, "Gray");
+                                    Type(ImdbTitle, 0, 0, 0, "Blue");
+                                    Type(" From: ", 0, 0, 0, "Gray");
+                                    Type(tmdbIdValue, 0, 0, 0, "Blue");
+                                    Type(" To: ", 0, 0, 0, "Gray");
+                                    Type(tmdbId, 0, 0, 1, "Blue");
+                                    intTmdbIdCorrectedCount++;
                                 }
                                 else // Else just skip it.
                                 {
@@ -4096,6 +6429,7 @@ namespace SheetsQuickstart
 
                 }
             }
+            var BatchUpdateValuesResponse = BulkWriteToSheet(batchRequest);
             Console.WriteLine();
             Type("It looks like that's the end of it.", 0, 0, 1);
             Type("TMDB IDs inserted: " + intTmdbIdDoneCount, 0, 0, 1, "Green");
@@ -4124,7 +6458,8 @@ namespace SheetsQuickstart
                         {
                             MoveDirectory(oldDirectory, newDirectory);
                             intDirectoriesMoviedCount++;
-                        } else
+                        }
+                        else
                         {
                             intDirectoriesSkippedCount++;
                         }
@@ -4159,6 +6494,2148 @@ namespace SheetsQuickstart
                 Console.WriteLine(exp.Message);
             }
         } // End MoveDirectory()
+
+        // =============================================================
+
+        // =============================================================
+        // 55m (Pre-step) - Scan Ready folders and rename movies early
+        // =============================================================
+        private static void Run55m_RenameMoviesFirst_ThenMove()
+        {
+            // 1) Scan Ready folders for Movies + TV shows
+            DisplayMessage("info", "Step 1/4: Scanning Ready folders for Movies and TV shows...", 1);
+
+            ArrayList movieFiles;
+            int tvShowCount;
+            int movieFolderCount;
+            int movieLooseFileCount;
+
+            ScanReadyFoldersForMoviesAndTv(out movieFiles, out tvShowCount, out movieFolderCount, out movieLooseFileCount);
+
+            int totalMovies = movieFiles?.Count ?? 0;
+
+            DisplayMessage("success", "Scan complete.", 1);
+            DisplayMessage("info", "Movies found: ", 0); DisplayMessage("data", totalMovies.ToString());
+            DisplayMessage("info", "  - movie files: ", 0); DisplayMessage("data", movieLooseFileCount.ToString());
+            DisplayMessage("info", "  - movie folders: ", 0); DisplayMessage("data", movieFolderCount.ToString());
+            DisplayMessage("info", "TV shows found: ", 0); DisplayMessage("data", tvShowCount.ToString(), 2);
+
+            // 2) If there are movies, rename them FIRST (so prompts happen early)
+            if (totalMovies > 0)
+            {
+                DisplayMessage("info", "Step 2/4: Renaming movies from Google Sheet (this may ask for help early)...", 2);
+
+                try
+                {
+                    IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+
+                    // rootDirectory is only used as a fallback display/path; moviePaths already include full paths
+                    string rootDirectory = "(Ready folders)";
+                    RenameMoviesAndSrtsFromSheet(movieData, movieSheetVariables, movieFiles, rootDirectory);
+
+                    DisplayMessage("success", "Movie rename step complete.", 2);
+                }
+                catch (Exception ex)
+                {
+                    DisplayMessage("error", "Movie rename step failed: ", 0);
+                    DisplayMessage("data", ex.Message, 2);
+
+                    // We still continue to moving so you're not dead in the water.
+                }
+            }
+            else
+            {
+                DisplayMessage("warning", "Step 2/4: No movies found. Skipping movie rename step.", 2);
+            }
+
+            // 3) Move Movies and/or TV Shows to Working Areas (existing 55m logic)
+            DisplayMessage("info", "Step 3/4: Moving Ready items to Working Areas...", 2);
+            MoveReadyVideosToWorkingAreas();
+
+            ProcessMoviesFromWorkingAreasThenCommit();
+        }
+
+        /// <summary>
+        /// Scans all Ready roots (Raph/Leo/Mikey/Donny) and returns:
+        /// - movieFiles: ALL movie video file paths (includes files inside movie folders)
+        /// - tvShowCount: # of TV show folders detected
+        /// - movieFolderCount: # of movie folders detected
+        /// - movieLooseFileCount: # of movie files found directly under Ready/<Source>/
+        /// </summary>
+        private static void ScanReadyFoldersForMoviesAndTv(
+            out ArrayList movieFiles,
+            out int tvShowCount,
+            out int movieFolderCount,
+            out int movieLooseFileCount)
+        {
+            movieFiles = new ArrayList();
+            tvShowCount = 0;
+            movieFolderCount = 0;
+            movieLooseFileCount = 0;
+
+            string[] readyRoots =
+            {
+                @"\\RAPH\RaphOutput\Ready",
+                @"\\LEO\LeoOutput\Ready",
+                @"\\MIKEY\MikeyOutput\Ready",
+                @"\\DONNY\DonnyOutput\Ready",
+                @"C:\Users\Brandon\Downloads\checked"
+            };
+
+            foreach (var readyRoot in readyRoots)
+            {
+                try
+                {
+                    if (!Directory.Exists(readyRoot))
+                    {
+                        DisplayMessage("warning", "Ready folder not found: ", 0);
+                        DisplayMessage("data", readyRoot);
+                        continue;
+                    }
+
+                    var sourceFolders = Directory.GetDirectories(readyRoot);
+
+                    foreach (var sourceFolder in sourceFolders)
+                    {
+                        // 1) Movie files directly under Ready/<Source>/
+                        try
+                        {
+                            string[] topFiles = Directory.GetFiles(sourceFolder, "*.*", SearchOption.TopDirectoryOnly);
+                            var vids = GrabMovieFiles(topFiles, showMessage: false);
+
+                            foreach (string v in vids)
+                            {
+                                if (!string.IsNullOrWhiteSpace(v) && File.Exists(v))
+                                {
+                                    movieFiles.Add(v);
+                                    movieLooseFileCount++;
+                                }
+                            }
+                        }
+                        catch
+                        {
+                            // ignore per-source file scan errors (MoveReadyVideosToWorkingAreas will log details later)
+                        }
+
+                        // 2) Top-level folders under Ready/<Source>/
+                        try
+                        {
+                            var topLevelFolders = Directory.GetDirectories(sourceFolder);
+
+                            foreach (var folder in topLevelFolders)
+                            {
+                                var subfolders = Directory.GetDirectories(folder, "*", SearchOption.TopDirectoryOnly);
+
+                                // TV show if it has subfolders (seasons)
+                                if (subfolders.Length > 0)
+                                {
+                                    tvShowCount++;
+                                    continue;
+                                }
+
+                                // Otherwise, treat as movie folder if it has video files
+                                string[] files = Directory.GetFiles(folder, "*.*", SearchOption.TopDirectoryOnly);
+                                var vids = GrabMovieFiles(files, showMessage: false);
+
+                                if (vids == null || vids.Count == 0)
+                                    continue;
+
+                                movieFolderCount++;
+
+                                foreach (string v in vids)
+                                {
+                                    if (!string.IsNullOrWhiteSpace(v) && File.Exists(v))
+                                    {
+                                        movieFiles.Add(v);
+                                    }
+                                }
+                            }
+                        }
+                        catch
+                        {
+                            // ignore; MoveReadyVideosToWorkingAreas will log later
+                        }
+                    }
+                }
+                catch
+                {
+                    // ignore; MoveReadyVideosToWorkingAreas will log later
+                }
+            }
+
+            // De-dupe paths (same file could be discovered twice in edge cases)
+            if (movieFiles.Count > 1)
+            {
+                var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var deduped = new ArrayList();
+
+                foreach (string p in movieFiles)
+                {
+                    if (string.IsNullOrWhiteSpace(p)) continue;
+                    if (unique.Add(p))
+                        deduped.Add(p);
+                }
+
+                movieFiles = deduped;
+            }
+        }
+
+        // 55m - Move Ready folders from recording PCs to Working Areas
+        // =============================================================
+        private static void MoveReadyVideosToWorkingAreas()
+        {
+            // Recording PCs (source)
+            string[] readyRoots =
+            {
+                @"\\RAPH\RaphOutput\Ready",
+                @"\\LEO\LeoOutput\Ready",
+                @"\\MIKEY\MikeyOutput\Ready",
+                @"\\DONNY\DonnyOutput\Ready",
+                @"C:\Users\Brandon\Downloads\checked"
+            };
+
+            // TV/Movie Working Areas (dest)
+            // Now driven from DriveMapping so you only update paths in ONE place.
+
+            int movedMovieFiles = 0;
+            int movedMovieFolderCount = 0;
+            int movedShowCount = 0;
+            int skippedCount = 0;
+            int errorCount = 0;
+
+            double MIN_FREE_PERCENT = 10.0;
+            string otherFallbackRoot = DriveMapping.OtherWorkingAreaRoot;
+
+            // -------------------------------------------------------
+            // Local helpers (C# 7.3 safe)
+            // -------------------------------------------------------
+            string GetPcNameFromReadyRoot(string readyRoot)
+            {
+                if (string.IsNullOrWhiteSpace(readyRoot)) return "Unknown";
+                var s = readyRoot.Trim();
+                if (s.StartsWith(@"\\")) s = s.Substring(2);
+                int idx = s.IndexOf('\\');
+                if (idx <= 0) return readyRoot;
+                return s.Substring(0, idx);
+            }
+
+            void PrintScanning(string readyRoot)
+            {
+                DisplayMessage("info", "Scanning Ready root: ", 0);
+                DisplayMessage("data", readyRoot);
+            }
+
+            void PrintFoundSummary(string pcName, int movies, int tv)
+            {
+                DisplayMessage("info", "Found: ", 0);
+                DisplayMessage("data", movies + " movies", 0);
+                DisplayMessage("info", " and ", 0);
+                DisplayMessage("data", tv + " TV shows", 0);
+                DisplayMessage("info", " ready to move from ", 0);
+                DisplayMessage("data", pcName);
+            }
+
+            void PrintTotalSummary(int movies, int tv, int items)
+            {
+                DisplayMessage("info", "TOTAL: ", 0);
+                DisplayMessage("data", movies + " movies", 0);
+                DisplayMessage("info", " and ", 0);
+                DisplayMessage("data", tv + " TV shows", 0);
+                DisplayMessage("info", " (", 0);
+                DisplayMessage("data", items.ToString(), 0);
+                DisplayMessage("info", " items)");
+            }
+
+            void PrintTvMoving(int index, int total, string name)
+            {
+                DisplayMessage("info", "[TV] Moving ", 0);
+                DisplayMessage("data", index + " of " + total, 0);
+                DisplayMessage("info", ": ", 0);
+                DisplayMessage("data", name);
+            }
+
+            void PrintTvLine(string label, string value)
+            {
+                DisplayMessage("info", "[TV] " + label + ": ", 0);
+                DisplayMessage("data", value);
+            }
+
+            void PrintMovieMoving(int index, int total, string name)
+            {
+                DisplayMessage("info", "[MOVIE] Moving ", 0);
+                DisplayMessage("data", index + " of " + total, 0);
+                DisplayMessage("info", ": ", 0);
+                DisplayMessage("data", name);
+            }
+
+            void PrintMovieLine(string label, string value)
+            {
+                DisplayMessage("info", "[MOVIE] " + label + ": ", 0);
+                DisplayMessage("data", value);
+            }
+
+            string ResolveMovieRoot(char letter, out string label)
+            {
+                return DriveMapping.GetMovieWorkingAreaRoot(letter, out label);
+            }
+
+            string ResolveTvRoot(char letter, out string label)
+            {
+                return DriveMapping.GetTvWorkingAreaRoot(letter, out label);
+            }
+
+            // -------------------------------------------------------
+            // PASS 1: BUILD A PLAN
+            // Requires:
+            //   - enum MoveKind { MovieItem, MovieFolder, TvShow }
+            //   - class PlannedMove { ReadyRoot, RecordSource, Kind, FolderPath, FolderName, MovieVideoFile, DisplayName }
+            // -------------------------------------------------------
+            var plan = new List<PlannedMove>();
+
+            foreach (var readyRoot in readyRoots)
+            {
+                int foundMoviesThisPc = 0;
+                int foundTvThisPc = 0;
+
+                string pcName = GetPcNameFromReadyRoot(readyRoot);
+
+                try
+                {
+                    PrintScanning(readyRoot);
+
+                    if (!Directory.Exists(readyRoot))
+                    {
+                        DisplayMessage("warning", "Ready folder not found: ", 0);
+                        DisplayMessage("data", readyRoot);
+                        continue;
+                    }
+
+                    var sourceFolders = Directory.GetDirectories(readyRoot);
+
+                    foreach (var sourceFolder in sourceFolders)
+                    {
+                        string recordSource = Path.GetFileName(sourceFolder);
+                        if (string.IsNullOrWhiteSpace(recordSource))
+                        {
+                            skippedCount++;
+                            continue;
+                        }
+
+                        // 1) MOVIES: files directly inside Ready/<Source>/
+                        try
+                        {
+                            string[] topFiles = Directory.GetFiles(sourceFolder, "*.*", SearchOption.TopDirectoryOnly);
+                            var movieVideoFiles = GrabMovieFiles(topFiles, showMessage: false);
+
+                            foreach (string movieVideoFile in movieVideoFiles)
+                            {
+                                if (string.IsNullOrWhiteSpace(movieVideoFile))
+                                {
+                                    skippedCount++;
+                                    continue;
+                                }
+
+                                string bn = Path.GetFileNameWithoutExtension(movieVideoFile);
+                                if (IsTrailerFileName(bn))
+                                {
+                                    // don't let trailers become their own "movie"
+                                    continue;
+                                }
+
+                                plan.Add(new PlannedMove
+                                {
+                                    ReadyRoot = readyRoot,
+                                    RecordSource = recordSource,
+                                    Kind = MoveKind.MovieItem,
+                                    MovieVideoFile = movieVideoFile
+                                });
+
+                                foundMoviesThisPc++;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            errorCount++;
+                            DisplayMessage("error", "Error scanning movie files in: ", 0);
+                            DisplayMessage("data", sourceFolder, 0);
+                            DisplayMessage("error", " | ", 0);
+                            DisplayMessage("data", ex.Message);
+                        }
+
+                        // 2) FOLDERS inside Ready/<Source>/
+                        try
+                        {
+                            var topLevelFolders = Directory.GetDirectories(sourceFolder);
+
+                            foreach (var folder in topLevelFolders)
+                            {
+                                string folderName = Path.GetFileName(folder);
+                                if (string.IsNullOrWhiteSpace(folderName))
+                                {
+                                    skippedCount++;
+                                    continue;
+                                }
+
+                                var subfolders = Directory.GetDirectories(folder, "*", SearchOption.TopDirectoryOnly);
+
+                                // TV show if any subfolders
+                                if (subfolders.Length > 0)
+                                {
+                                    plan.Add(new PlannedMove
+                                    {
+                                        ReadyRoot = readyRoot,
+                                        RecordSource = recordSource,
+                                        Kind = MoveKind.TvShow,
+                                        FolderPath = folder,
+                                        FolderName = folderName
+                                    });
+
+                                    foundTvThisPc++;
+                                    continue;
+                                }
+
+                                // Otherwise: maybe a movie folder (has a movie file at top)
+                                string[] files = Directory.GetFiles(folder, "*.*", SearchOption.TopDirectoryOnly);
+                                var vids = GrabMovieFiles(files, showMessage: false);
+
+                                if (vids == null || vids.Count == 0)
+                                {
+                                    skippedCount++;
+                                    continue;
+                                }
+
+                                plan.Add(new PlannedMove
+                                {
+                                    ReadyRoot = readyRoot,
+                                    RecordSource = recordSource,
+                                    Kind = MoveKind.MovieFolder,
+                                    FolderPath = folder,
+                                    FolderName = folderName
+                                });
+
+                                foundMoviesThisPc++;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            errorCount++;
+                            DisplayMessage("error", "Error scanning folders in: ", 0);
+                            DisplayMessage("data", sourceFolder, 0);
+                            DisplayMessage("error", " | ", 0);
+                            DisplayMessage("data", ex.Message);
+                        }
+                    }
+
+                    PrintFoundSummary(pcName, foundMoviesThisPc, foundTvThisPc);
+                }
+                catch (Exception ex)
+                {
+                    errorCount++;
+                    DisplayMessage("error", "Unhandled error scanning Ready root: ", 0);
+                    DisplayMessage("data", readyRoot, 0);
+                    DisplayMessage("error", " | ", 0);
+                    DisplayMessage("data", ex.Message);
+                }
+            }
+
+            int totalMovies = plan.Count(p => p.Kind == MoveKind.MovieItem || p.Kind == MoveKind.MovieFolder);
+            int totalTv = plan.Count(p => p.Kind == MoveKind.TvShow);
+            int totalItems = plan.Count;
+
+            PrintTotalSummary(totalMovies, totalTv, totalItems);
+            Type(new string('-', 60), 0, 0, 1, "Blue");
+
+            if (totalItems == 0)
+            {
+                DisplayMessage("success", "55m complete (nothing to move).");
+
+                DisplayMessage("info", "Movies moved (files): ", 0);
+                DisplayMessage("data", "0");
+
+                DisplayMessage("info", "Movies moved (folders): ", 0);
+                DisplayMessage("data", "0");
+
+                DisplayMessage("info", "TV shows moved (folders): ", 0);
+                DisplayMessage("data", "0");
+
+                DisplayMessage("warning", "Skipped: ", 0);
+                DisplayMessage("data", skippedCount.ToString());
+
+                DisplayMessage("error", "Errors: ", 0);
+                DisplayMessage("data", errorCount.ToString());
+
+                return;
+            }
+
+            // -------------------------------------------------------
+            // PASS 2: EXECUTE PLAN
+            // -------------------------------------------------------
+            int movieIndex = 0;
+            int tvIndex = 0;
+
+            foreach (var item in plan)
+            {
+                try
+                {
+                    if (item.Kind == MoveKind.TvShow)
+                    {
+                        tvIndex++;
+                        PrintTvMoving(tvIndex, totalTv, item.DisplayName);
+
+                        string folder = item.FolderPath;
+                        string folderName = item.FolderName;
+                        string recordSource = item.RecordSource;
+
+                        PrintTvLine("Detected show", folderName);
+
+                        char sortLetter = GetSortLetter(folderName);
+
+                        string tvLabel;
+                        string tvWorkingRoot = ResolveTvRoot(sortLetter, out tvLabel);
+
+                        string chosenTvRoot, chosenTvLabel;
+                        double? tvPct, fallbackPct;
+                        bool rerouted;
+                        bool canMove = ApplyLowSpaceReroute(
+                            tvWorkingRoot,
+                            tvLabel,
+                            otherFallbackRoot,
+                            recordSource,
+                            MIN_FREE_PERCENT,
+                            out chosenTvRoot,
+                            out chosenTvLabel,
+                            out tvPct,
+                            out fallbackPct,
+                            out rerouted);
+
+                        if (!canMove)
+                        {
+                            skippedCount++;
+                            DisplayMessage("error", "[TV] Not moved (low space). ", 0);
+                            DisplayMessage("data", folderName, 0);
+                            DisplayMessage("error", " | ", 0);
+                            DisplayMessage("data", "Target=" + tvLabel + " (" + (tvPct.HasValue ? tvPct.Value.ToString("0.##") + "%" : "unknown") + "), " +
+                                                   "Fallback=Other (" + (fallbackPct.HasValue ? fallbackPct.Value.ToString("0.##") + "%" : "unknown") + ")");
+                            continue;
+                        }
+
+                        if (tvPct.HasValue && tvPct.Value < MIN_FREE_PERCENT && rerouted)
+                        {
+                            DisplayMessage("warning", "[TV] Low free space detected on target (", 0);
+                            DisplayMessage("data", tvPct.Value.ToString("0.##") + "%", 0);
+                            DisplayMessage("warning", "). Rerouting to Other (", 0);
+                            DisplayMessage("data", fallbackPct.Value.ToString("0.##") + "%", 0);
+                            DisplayMessage("warning", ").");
+                        }
+                        else if (!tvPct.HasValue)
+                        {
+                            DisplayMessage("warning", "[TV] Could not verify free space for destination share. Proceeding anyway.");
+                        }
+
+                        string destShowPath = Path.Combine(chosenTvRoot, recordSource, folderName);
+
+                        // For TV shows, DO NOT create (2), (3), etc.
+                        // Reuse the existing show folder if it already exists.
+                        EnsureDirectory(destShowPath);
+
+                        PrintTvLine("Target drive", chosenTvLabel);
+                        PrintTvLine("Source", folder);
+                        PrintTvLine("Destination", destShowPath);
+
+                        var subfolders = Directory.GetDirectories(folder, "*", SearchOption.TopDirectoryOnly);
+                        var seasonNames = subfolders
+                            .Select(Path.GetFileName)
+                            .Where(n => !string.IsNullOrWhiteSpace(n))
+                            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                            .ToList();
+
+                        if (seasonNames.Count > 0)
+                        {
+                            foreach (var s in seasonNames)
+                            {
+                                string seasonDest = Path.Combine(destShowPath, s);
+
+                                if (Directory.Exists(seasonDest))
+                                {
+                                    DisplayMessage("warning", "[TV] Season folder already exists, will merge into ", 0);
+                                    DisplayMessage("data", "'" + seasonDest + "'");
+                                }
+                                else
+                                {
+                                    DisplayMessage("info", "[TV] Will create season folder ", 0);
+                                    DisplayMessage("data", "'" + s + "'", 0);
+                                    DisplayMessage("info", " in ", 0);
+                                    DisplayMessage("data", "'" + destShowPath + "'");
+                                }
+                            }
+                        }
+
+                        MoveDirectoryRobust(folder, destShowPath);
+                        movedShowCount++;
+                    }
+                    else if (item.Kind == MoveKind.MovieFolder)
+                    {
+                        movieIndex++;
+                        PrintMovieMoving(movieIndex, totalMovies, item.DisplayName);
+
+                        string folder = item.FolderPath;
+                        string folderName = item.FolderName;
+                        string recordSource = item.RecordSource;
+
+                        char sortLetter = GetSortLetter(folderName);
+
+                        string movieLabel;
+                        string movieWorkingRoot = ResolveMovieRoot(sortLetter, out movieLabel);
+
+                        string chosenMovieRoot, chosenMovieLabel;
+                        double? moviePct, fallbackPct;
+                        bool rerouted;
+                        bool canMove = ApplyLowSpaceReroute(
+                            movieWorkingRoot,
+                            movieLabel,
+                            otherFallbackRoot,
+                            recordSource,
+                            MIN_FREE_PERCENT,
+                            out chosenMovieRoot,
+                            out chosenMovieLabel,
+                            out moviePct,
+                            out fallbackPct,
+                            out rerouted);
+
+                        if (!canMove)
+                        {
+                            skippedCount++;
+                            DisplayMessage("error", "[MOVIE] Folder not moved (low space). ", 0);
+                            DisplayMessage("data", folderName, 0);
+                            DisplayMessage("error", " | ", 0);
+                            DisplayMessage("data", "Target=" + movieLabel + " (" + (moviePct.HasValue ? moviePct.Value.ToString("0.##") + "%" : "unknown") + "), " +
+                                                   "Fallback=Other (" + (fallbackPct.HasValue ? fallbackPct.Value.ToString("0.##") + "%" : "unknown") + ")");
+                            continue;
+                        }
+
+                        if (moviePct.HasValue && moviePct.Value < MIN_FREE_PERCENT && rerouted)
+                        {
+                            DisplayMessage("warning", "[MOVIE] Low free space detected on target (", 0);
+                            DisplayMessage("data", moviePct.Value.ToString("0.##") + "%", 0);
+                            DisplayMessage("warning", "). Rerouting to Other (", 0);
+                            DisplayMessage("data", fallbackPct.Value.ToString("0.##") + "%", 0);
+                            DisplayMessage("warning", ").");
+                        }
+                        else if (!moviePct.HasValue)
+                        {
+                            DisplayMessage("warning", "[MOVIE] Could not verify free space for destination share. Proceeding anyway.");
+                        }
+
+                        string destMovieFolder = Path.Combine(chosenMovieRoot, recordSource, folderName);
+
+                        destMovieFolder = GetUniqueDirectoryPath(destMovieFolder);
+
+                        string destParent = Path.GetDirectoryName(destMovieFolder);
+                        if (!string.IsNullOrWhiteSpace(destParent))
+                            EnsureDirectory(destParent);
+
+                        PrintMovieLine("Target drive", chosenMovieLabel);
+                        PrintMovieLine("Source", folder);
+                        PrintMovieLine("Destination", destMovieFolder);
+
+                        MoveDirectoryRobust(folder, destMovieFolder);
+                        movedMovieFolderCount++;
+                    }
+                    else // MovieItem (video file + sidecars)
+                    {
+                        movieIndex++;
+                        string movieVideoFile = item.MovieVideoFile;
+                        string recordSource = item.RecordSource;
+
+                        string title = item.DisplayName;
+                        PrintMovieMoving(movieIndex, totalMovies, title);
+
+                        string sourceFolder = Path.GetDirectoryName(movieVideoFile);
+                        if (string.IsNullOrWhiteSpace(sourceFolder) || !Directory.Exists(sourceFolder))
+                        {
+                            skippedCount++;
+                            DisplayMessage("warning", "Skipped (missing source folder): ", 0);
+                            DisplayMessage("data", movieVideoFile);
+                            continue;
+                        }
+
+                        char sortLetter = GetSortLetter(title);
+
+                        string movieLabel;
+                        string movieWorkingRoot = ResolveMovieRoot(sortLetter, out movieLabel);
+
+                        string chosenMovieRoot, chosenMovieLabel;
+                        double? moviePct, fallbackPct;
+                        bool rerouted;
+                        bool canMove = ApplyLowSpaceReroute(
+                            movieWorkingRoot,
+                            movieLabel,
+                            otherFallbackRoot,
+                            recordSource,
+                            MIN_FREE_PERCENT,
+                            out chosenMovieRoot,
+                            out chosenMovieLabel,
+                            out moviePct,
+                            out fallbackPct,
+                            out rerouted);
+
+                        if (!canMove)
+                        {
+                            skippedCount++;
+                            DisplayMessage("error", "[MOVIE] File not moved (low space). ", 0);
+                            DisplayMessage("data", title, 0);
+                            DisplayMessage("error", " | ", 0);
+                            DisplayMessage("data", "Target=" + movieLabel + " (" + (moviePct.HasValue ? moviePct.Value.ToString("0.##") + "%" : "unknown") + "), " +
+                                                   "Fallback=Other (" + (fallbackPct.HasValue ? fallbackPct.Value.ToString("0.##") + "%" : "unknown") + ")");
+                            continue;
+                        }
+
+                        if (moviePct.HasValue && moviePct.Value < MIN_FREE_PERCENT && rerouted)
+                        {
+                            DisplayMessage("warning", "[MOVIE] Low free space detected on target (", 0);
+                            DisplayMessage("data", moviePct.Value.ToString("0.##") + "%", 0);
+                            DisplayMessage("warning", "). Rerouting to Other (", 0);
+                            DisplayMessage("data", fallbackPct.Value.ToString("0.##") + "%", 0);
+                            DisplayMessage("warning", ").");
+                        }
+                        else if (!moviePct.HasValue)
+                        {
+                            DisplayMessage("warning", "[MOVIE] Could not verify free space for destination share. Proceeding anyway.");
+                        }
+
+                        // Create: <WorkingRoot>\<Source>\<Title>\
+                        string destMovieFolder = Path.Combine(chosenMovieRoot, recordSource, title);
+                        destMovieFolder = GetUniqueDirectoryPath(destMovieFolder);
+                        EnsureDirectory(destMovieFolder);
+
+                        PrintMovieLine("Destination folder", destMovieFolder);
+
+                        string baseName = Path.GetFileNameWithoutExtension(movieVideoFile);
+
+                        // Grab video + any sidecars that share the same base name (subs, nfo, etc.)
+                        var sidecarsList = new List<string>();
+
+                        // Main file + normal sidecars (subs/nfo/etc.)
+                        sidecarsList.AddRange(Directory.GetFiles(sourceFolder, baseName + ".*", SearchOption.TopDirectoryOnly));
+
+                        // Trailer variations that won't match baseName + ".*"
+                        sidecarsList.AddRange(Directory.GetFiles(sourceFolder, baseName + " - trailer*.*", SearchOption.TopDirectoryOnly));
+                        sidecarsList.AddRange(Directory.GetFiles(sourceFolder, baseName + "-trailer*.*", SearchOption.TopDirectoryOnly));
+                        sidecarsList.AddRange(Directory.GetFiles(sourceFolder, baseName + " - teaser*.*", SearchOption.TopDirectoryOnly));
+                        sidecarsList.AddRange(Directory.GetFiles(sourceFolder, baseName + "-teaser*.*", SearchOption.TopDirectoryOnly));
+                        sidecarsList.AddRange(Directory.GetFiles(sourceFolder, baseName + " - preview*.*", SearchOption.TopDirectoryOnly));
+                        sidecarsList.AddRange(Directory.GetFiles(sourceFolder, baseName + "-preview*.*", SearchOption.TopDirectoryOnly));
+
+                        string[] sidecars = sidecarsList
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .ToArray();
+
+                        foreach (var f in sidecars)
+                        {
+                            try
+                            {
+                                string fileName = Path.GetFileName(f);
+
+                                string suffix;
+
+                                if (fileName.Length > baseName.Length)
+                                {
+                                    suffix = fileName.Substring(baseName.Length);
+                                }
+                                else
+                                {
+                                    suffix = Path.GetExtension(fileName);
+                                }
+
+                                // Normalize trailer/teaser/preview naming to Plex format
+                                string lowerSuffix = suffix.ToLowerInvariant();
+
+                                if (lowerSuffix.Contains("trailer"))
+                                {
+                                    suffix = "-trailer" + Path.GetExtension(fileName);
+                                }
+                                else if (lowerSuffix.Contains("teaser"))
+                                {
+                                    suffix = "-teaser" + Path.GetExtension(fileName);
+                                }
+                                else if (lowerSuffix.Contains("preview"))
+                                {
+                                    suffix = "-preview" + Path.GetExtension(fileName);
+                                }
+
+                                // Force the moved filename to start with the folder title
+                                string destFileName = title + suffix;
+
+                                DisplayMessage("info", "[MOVIE] Moving file: ", 0);
+                                DisplayMessage("data", fileName, 0);
+                                DisplayMessage("info", " -> ", 0);
+                                DisplayMessage("data", destFileName);
+
+                                string destFile = GetUniqueFilePath(Path.Combine(destMovieFolder, destFileName));
+                                MoveFileRobust(f, destFile);
+                                movedMovieFiles++;
+                            }
+                            catch (Exception ex)
+                            {
+                                errorCount++;
+                                DisplayMessage("error", "Failed moving file: ", 0);
+                                DisplayMessage("data", f, 0);
+                                DisplayMessage("error", " | ", 0);
+                                DisplayMessage("data", ex.Message);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    errorCount++;
+                    DisplayMessage("error", "Failed moving item: ", 0);
+                    DisplayMessage("data", item.DisplayName, 0);
+                    DisplayMessage("error", " | ", 0);
+                    DisplayMessage("data", ex.Message);
+                }
+            }
+
+            // -------------------------------------------------------
+            // Final summary
+            // -------------------------------------------------------
+            DisplayMessage("success", "55m complete.");
+
+            DisplayMessage("info", "Movies moved (files): ", 0);
+            DisplayMessage("data", movedMovieFiles.ToString());
+
+            DisplayMessage("info", "Movies moved (folders): ", 0);
+            DisplayMessage("data", movedMovieFolderCount.ToString());
+
+            DisplayMessage("info", "TV shows moved (folders): ", 0);
+            DisplayMessage("data", movedShowCount.ToString());
+
+            DisplayMessage("warning", "Skipped: ", 0);
+            DisplayMessage("data", skippedCount.ToString());
+
+            DisplayMessage("error", "Errors: ", 0);
+            DisplayMessage("data", errorCount.ToString());
+        }
+
+        // =============================================================
+        // 55m (Part 2) - Process staged movies in Working Areas,
+        // then commit to Movies library + run ONE Emby scan
+        // =============================================================
+        private static void ProcessMoviesFromWorkingAreasThenCommit()
+        {
+            // Movie Working Areas (sources for this phase)
+            string[] movieWorkingRoots = DriveMapping.GetMovieWorkingAreaRoots();
+
+            int processed = 0;
+            int skipped = 0;
+            int errors = 0;
+
+            var committedDestinations = new List<string>();
+
+            // Collect staged folders first (so we can do “metadata pass” and “sheet+commit pass”)
+            var stagedMovieFolders = new List<(string MovieFolder, string RecordSource)>();
+
+            foreach (var workingRoot in movieWorkingRoots)
+            {
+                if (!Directory.Exists(workingRoot))
+                    continue;
+
+                // Working Area\<RecordSource>\MovieFolder...
+                var recordSourceFolders = Directory.GetDirectories(workingRoot);
+
+                foreach (var recordSourceFolder in recordSourceFolders)
+                {
+                    string recordSource = Path.GetFileName(recordSourceFolder);
+
+                    try
+                    {
+                        // Movies are now ALWAYS:
+                        // Working Area\<Source>\<Movie Title>\ (folder containing mkv/mp4 + sidecars)
+                        var movieFolders = Directory.GetDirectories(recordSourceFolder, "*", SearchOption.TopDirectoryOnly);
+
+                        foreach (var movieFolder in movieFolders)
+                        {
+                            // Sanity: only treat it as a staged movie folder if it contains a video file
+                            bool hasVideo = Directory.GetFiles(movieFolder, "*.*", SearchOption.TopDirectoryOnly)
+                                .Any(f =>
+                                    f.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) ||
+                                    f.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase) ||
+                                    f.EndsWith(".avi", StringComparison.OrdinalIgnoreCase) ||
+                                    f.EndsWith(".webm", StringComparison.OrdinalIgnoreCase));
+
+                            if (!hasVideo)
+                                continue;
+
+                            stagedMovieFolders.Add((movieFolder, recordSource));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        errors++;
+                        DisplayMessage("error", "Error enumerating staged movies in: ", 0);
+                        DisplayMessage("data", recordSourceFolder, 0);
+                        DisplayMessage("error", " | ", 0);
+                        DisplayMessage("data", ex.Message);
+                    }
+                }
+            }
+
+            // De-dupe (same folder can be found twice if it had both top file + folder logic)
+            stagedMovieFolders = stagedMovieFolders
+                .GroupBy(x => x.MovieFolder, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .ToList();
+
+            if (stagedMovieFolders.Count == 0)
+            {
+                DisplayMessage("warning", "No staged movie folders found in Working Areas.");
+                return;
+            }
+
+            DisplayMessage("info",$"--- Found {stagedMovieFolders.Count} staged movie folder(s): {DateTime.Now} ---");
+            foreach (var f in stagedMovieFolders)
+                DisplayMessage("info", $"{f.RecordSource} | {f.MovieFolder}",2);
+
+            // PASS 1: Remove metadata
+            DisplayMessage("info", $"--- Removing metadata from {stagedMovieFolders.Count} folder(s): {DateTime.Now} ---");
+            foreach (var item in stagedMovieFolders)
+            {
+                try
+                {
+                    RemoveMetadataInFolder(item.MovieFolder);
+                }
+                catch (Exception ex)
+                {
+                    errors++;
+                    DisplayMessage("harderror", $"ERROR RemoveMetadataInFolder: {item.MovieFolder} | {ex.Message}");
+                }
+            }
+            DisplayMessage("info", $"--- Removing metadata finished: {DateTime.Now} ---", 2);
+
+            // PASS 2: Update Google Sheet + commit move into library
+            DisplayMessage("info", $"--- Now going to update Google Sheet + commit staged movies: {DateTime.Now} ---");
+
+            MoviesSheetBatchContext sheetContext = null;
+
+            try
+            {
+                sheetContext = BuildMoviesSheetBatchContext();
+            }
+            catch (Exception ex)
+            {
+                errors++;
+                DisplayMessage("harderror", $"ERROR BuildMoviesSheetBatchContext: {ex.Message}");
+                return;
+            }
+
+            foreach (var item in stagedMovieFolders)
+            {
+                try
+                {
+                    bool ok = ProcessSingleStagedMovieFolderAndCommit(
+                        sheetContext: sheetContext,
+                        stagedMovieFolder: item.MovieFolder,
+                        recordSource: item.RecordSource,
+                        committedDestinations: committedDestinations
+                    );
+
+                    if (ok) processed++;
+                    else skipped++;
+                }
+                catch (Exception ex)
+                {
+                    errors++;
+                    DisplayMessage("harderror", $"ERROR ProcessSingleStagedMovieFolderAndCommit: {item.MovieFolder} | {ex.Message}");
+                }
+            }
+
+            try
+            {
+                FlushMoviesSheetBatchUpdates(sheetContext);
+            }
+            catch (Exception ex)
+            {
+                errors++;
+                DisplayMessage("harderror", $"ERROR FlushMoviesSheetBatchUpdates: {ex.Message}");
+            }
+
+            DisplayMessage("info", $"--- Updating Google Sheet + commit finished: {DateTime.Now} ---", 2);
+
+            // =============================================================
+            // Pre-Emby: Update Google Sheet + NFO/trailers/scoring tasks
+            // =============================================================
+            try
+            {
+                DisplayMessage("info", $"--- Pre-Emby tasks starting: {DateTime.Now} ---");
+
+                // Update sheet resolution choice
+                // getVideoResolutionChoice();
+                IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+                FillInVideoResolution(movieData, movieSheetVariables, false);
+
+                // Add folder sizes to sheet
+                //addSizeOfMovieDirectories();
+                InsertMovieDirectorySizesIntoMoviesSheet(movieData, movieSheetVariables, false);
+
+                // Set / update file type choice
+                //fileTypeChoice();
+                FillInFileTypes(movieData, movieSheetVariables, false);
+
+                // Download missing trailers
+                //downloadMovieTrailersChoice();
+                DownloadMovieTrailers(movieData, movieSheetVariables);
+
+                // Run SRT scoring
+                //srtScoreRunnerChoice();
+                // --- duplicate auth code for now (same pattern as WriteSingleCellToSheet / BulkWriteToSheet) ---
+                UserCredential credential;
+
+                using (var stream =
+                    new FileStream("credentials.json", FileMode.Open, FileAccess.Read))
+                {
+                    string credPath = "token.json";
+                    credential = GoogleWebAuthorizationBroker.AuthorizeAsync(
+                        GoogleClientSecrets.FromStream(stream).Secrets,
+                        SCOPES,
+                        "user",
+                        CancellationToken.None,
+                        new FileDataStore(credPath, true)).Result;
+                }
+
+                SheetsService sheetsService = new SheetsService(new BaseClientService.Initializer
+                {
+                    HttpClientInitializer = credential,
+                    ApplicationName = "Google-SheetsSample/0.1",  // same as your other helpers
+                });
+                // --- end local SheetsService setup ---
+                SubtitleScoreRunner.Run(sheetsService, SPREADSHEET_ID, "Movies");
+
+                // Find & create missing movie NFO files
+                //missingMovieNfoFilesChoice();
+                CreateNfoFiles(movieData, movieSheetVariables, 3);
+
+                DisplayMessage("success", $"--- Pre-Emby tasks finished: {DateTime.Now} ---");
+            }
+            catch (Exception ex)
+            {
+                errors++;
+                DisplayMessage("harderror", $"ERROR Pre-Emby tasks: {ex.Message}");
+            }
+
+            // =============================================================
+            // ONE Emby refresh at the end
+            // =============================================================
+            try
+            {
+                DisplayMessage("info", $"--- Triggering Emby library refresh: {DateTime.Now} ---");
+                RefreshEmbyLibrary();   // existing method
+                DisplayMessage("success", $"--- Emby library refresh step finished: {DateTime.Now} ---");
+            }
+            catch (Exception ex)
+            {
+                errors++;
+                DisplayMessage("harderror", $"ERROR RefreshEmbyLibrary: {ex.Message}");
+            }
+
+            // =============================================================
+            // Post-Emby: File health runner
+            // =============================================================
+            try
+            {
+                DisplayMessage("info", $"--- Post-Emby file health starting: {DateTime.Now} ---");
+                //fileHealthRunnerChoice();
+                SheetsService sheetsService = CreateSheetsService();
+
+                VideoHealthSheetRunner.Run(sheetsService, SPREADSHEET_ID, "Movies");
+                DisplayMessage("success", $"--- Post-Emby file health finished: {DateTime.Now} ---");
+            }
+            catch (Exception ex)
+            {
+                errors++;
+                DisplayMessage("harderror", $"ERROR fileHealthRunnerChoice: {ex.Message}");
+            }
+
+
+            DisplayMessage("success", "Staged movies processed: " + processed);
+            DisplayMessage("warning", "Skipped: " + skipped);
+            DisplayMessage("error", "Errors: " + errors);
+        }
+
+        private static bool IsTrailerFileName(string baseName)
+        {
+            if (string.IsNullOrWhiteSpace(baseName)) return false;
+
+            string lower = baseName.ToLowerInvariant();
+
+            // filename markers
+            return lower.Contains("trailer")
+                || lower.Contains("teaser")
+                || lower.Contains("preview");
+        }
+
+        private static string StripTrailerTokens(string baseName)
+        {
+            if (string.IsNullOrWhiteSpace(baseName)) return baseName;
+
+            string s = baseName;
+
+            s = Regex.Replace(
+                s,
+                @"\s*-\s*(trailer|teaser|preview)(?:[\s._-]*[A-Za-z0-9]+)?\s*$",
+                "",
+                RegexOptions.IgnoreCase);
+
+            s = Regex.Replace(
+                s,
+                @"\s+(official\s+)?(trailer|teaser|preview)(?:[\s._-]*[A-Za-z0-9]+)?\s*$",
+                "",
+                RegexOptions.IgnoreCase);
+
+            // Remove common patterns (best-effort)
+            string[] tokens =
+            {
+                " - trailer", "- trailer", " trailer",
+                " - teaser", "- teaser", " teaser",
+                " official trailer", "official trailer",
+                " official teaser", "official teaser",
+                " - preview", "- preview", " preview"
+            };
+
+            string lower = s.ToLowerInvariant();
+
+            foreach (var t in tokens)
+            {
+                int idx = lower.IndexOf(t, StringComparison.Ordinal);
+                if (idx >= 0)
+                {
+                    s = s.Remove(idx, t.Length);
+                    lower = s.ToLowerInvariant();
+                }
+            }
+
+            return s.Trim().Trim('-', '_', ' ', '.');
+        }
+
+        private static string BuildTargetVideoName(string baseName, string extension, bool isTrailer)
+        {
+            // baseName: "500 Days of Summer (2009)"
+            // trailer: "500 Days of Summer (2009)-trailer.mkv"
+            return isTrailer
+                ? $"{baseName}-trailer{extension}"
+                : $"{baseName}{extension}";
+        }
+
+        private static string BuildTargetSrtName(string baseName, string lang, bool isTrailer)
+        {
+            // "500 Days of Summer (2009).eng.srt" or "...-trailer.eng.srt"
+            string trailerPart = isTrailer ? "-trailer" : "";
+            if (string.IsNullOrWhiteSpace(lang))
+                return $"{baseName}{trailerPart}.srt";
+
+            return $"{baseName}{trailerPart}.{lang}.srt";
+        }
+
+        private static void QuarantineFileAndSidecars(string filePath, string reason)
+        {
+            try
+            {
+                var parentDir = Path.GetDirectoryName(filePath) ?? "";
+                var folderName = "Bad - " + SanitizeFolderName(reason);
+                var destDir = Path.Combine(parentDir, folderName);
+                Directory.CreateDirectory(destDir);
+
+                // Base name without extension (used to find sidecars)
+                var baseName = Path.GetFileNameWithoutExtension(filePath);
+
+                // Collect candidates to move:
+                //  1) the original bad file
+                //  2) any .srt files whose filename starts with the same base (case-insensitive)
+                var toMove = new List<string> { filePath };
+
+                var sidecars = Directory.GetFiles(parentDir, "*.srt", SearchOption.TopDirectoryOnly)
+                    .Where(p => Path.GetFileName(p).StartsWith(baseName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                toMove.AddRange(sidecars);
+
+                foreach (var src in toMove.Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        var fileName = Path.GetFileName(src);
+                        var destPath = Path.Combine(destDir, fileName);
+
+                        // If collision, append timestamp
+                        if (File.Exists(destPath))
+                        {
+                            var n = Path.GetFileNameWithoutExtension(fileName);
+                            var ext = Path.GetExtension(fileName);
+                            destPath = Path.Combine(destDir, $"{n}_{DateTime.Now:yyyyMMdd_HHmmss}{ext}");
+                        }
+
+                        File.Move(src, destPath);
+                        DisplayMessage("info", $"[QUARANTINED] {src} -> {destPath}");
+                    }
+                    catch (Exception exFile)
+                    {
+                        DisplayMessage("info", $"[QUARANTINE-FAIL] Could not move {src}: {exFile.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DisplayMessage("info", $"[QUARANTINE-FAIL] Could not prepare quarantine folder for {filePath}: {ex.Message}");
+            }
+        }
+
+        private static string SanitizeFolderName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "Unknown Error";
+            // Remove/replace characters invalid for folder names
+            var invalid = Path.GetInvalidFileNameChars();
+            var sb = new StringBuilder(name.Length);
+            foreach (var ch in name)
+                sb.Append(invalid.Contains(ch) ? '_' : ch);
+
+            // Trim and collapse spaces
+            var cleaned = sb.ToString().Trim();
+            // Keep it reasonable in length
+            if (cleaned.Length > 80) cleaned = cleaned.Substring(0, 80).Trim();
+            return cleaned.Length == 0 ? "Unknown Error" : cleaned;
+        }
+
+        private static void RefreshEmbyLibrary()
+        {
+            try
+            {
+                using (var client = new HttpClient())
+                {
+                    client.Timeout = TimeSpan.FromSeconds(30);
+                    string embyApiKey = GetEmbyApiKey();
+                    string embyMoviesLibraryId = GetEmbyMoviesLibraryId();
+                    var baseUrl = GetEmbyServerUrl()?.TrimEnd('/') ?? "";
+                    if (string.IsNullOrWhiteSpace(baseUrl) ||
+                        string.IsNullOrWhiteSpace(embyApiKey) ||
+                        string.IsNullOrWhiteSpace(embyMoviesLibraryId))
+                    {
+                        DisplayMessage("info", "Emby refresh skipped: EMBY_SERVER_URL, EMBY_API_KEY, or EMBY_MOVIES_LIBRARY_ID not configured.");
+                        return;
+                    }
+
+                    // Refresh just the Movies library (ID = 3)
+                    var url =
+                        $"{baseUrl}/emby/Items/{embyMoviesLibraryId}/Refresh" +
+                        $"?Recursive=true" +
+                        $"&ImageRefreshMode=FullRefresh" +
+                        $"&MetadataRefreshMode=Default" +
+                        $"&ReplaceAllMetadata=false" +
+                        $"&ReplaceAllImages=false" +
+                        $"&api_key={embyApiKey}";
+
+                    DisplayMessage("info", $"Sending Emby Movies library refresh request for library {embyMoviesLibraryId}.");
+
+                    var response = client.PostAsync(url, null).Result;
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        DisplayMessage("info", "✅ Emby Movies library refresh triggered successfully.");
+                    }
+                    else
+                    {
+                        DisplayMessage("error", $"❌ Emby refresh failed. Status: {(int)response.StatusCode} {response.ReasonPhrase}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DisplayMessage("harderror", $"❌ Error triggering Emby Movies library refresh: {ex.Message}");
+            }
+        }
+
+        private static bool ProcessSingleStagedMovieFolderAndCommit(
+            MoviesSheetBatchContext sheetContext,
+            string stagedMovieFolder,
+            string recordSource,
+            List<string> committedDestinations,
+            string moviesLibraryRoot_1 = @"\\Quadplex\#-d\Movies",
+            string moviesLibraryRoot_2 = @"\\Quadplex\e-m\Movies",
+            string moviesLibraryRoot_3 = @"\\Quadplex\n-z\Movies")
+        {
+            try
+            {
+                if (!Directory.Exists(stagedMovieFolder))
+                    return false;
+
+                // Find the primary video file in the staged folder (largest non-trailer)
+                var videoFiles = Directory.GetFiles(stagedMovieFolder, "*.*", SearchOption.TopDirectoryOnly)
+                    .Where(f =>
+                        f.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".avi", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".m4v", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".webm", StringComparison.OrdinalIgnoreCase))
+                    .Where(f => f.IndexOf("-trailer", StringComparison.OrdinalIgnoreCase) < 0)
+                    .Select(f => new FileInfo(f))
+                    .OrderByDescending(fi => fi.Length)
+                    .ToList();
+
+                if (videoFiles.Count == 0)
+                    return false;
+
+                string cleanTitle = Path.GetFileNameWithoutExtension(videoFiles[0].FullName);
+
+                return UpdateMoviesSheetRowAndCommitMove(
+                    sheetContext,
+                    cleanTitle,
+                    recordSource,
+                    stagedMovieFolder,
+                    moviesLibraryRoot_1,
+                    moviesLibraryRoot_2,
+                    moviesLibraryRoot_3,
+                    committedDestinations
+                );
+            }
+            catch (Exception ex)
+            {
+                DisplayMessage("error", "Failed staged movie FOLDER: ", 0);
+                DisplayMessage("data", stagedMovieFolder, 0);
+                DisplayMessage("error", " | ", 0);
+                DisplayMessage("data", ex.Message);
+                return false;
+            }
+        }
+
+        private static bool UpdateMoviesSheetRowAndCommitMove(
+            MoviesSheetBatchContext sheetContext,
+            string cleanTitle,
+            string recordedSource,
+            string stagedMovieFolder,
+            string moviesLibraryRoot_1,
+            string moviesLibraryRoot_2,
+            string moviesLibraryRoot_3,
+            List<string> committedDestinations)
+        {
+            try
+            {
+                var data = sheetContext.DataRows;
+                var colIndex = sheetContext.ColIndex;
+
+                int cleanTitleIdx = colIndex[CLEAN_TITLE];
+
+                // Find matching row by Clean Title
+                int matchingRowIndex = -1;
+                for (int i = 0; i < data.Count; i++)
+                {
+                    var row = data[i];
+                    if (cleanTitleIdx < row.Count)
+                    {
+                        var cell = row[cleanTitleIdx]?.ToString()?.Trim();
+                        if (!string.IsNullOrWhiteSpace(cell) &&
+                            string.Equals(cell, cleanTitle, StringComparison.OrdinalIgnoreCase))
+                        {
+                            matchingRowIndex = i;
+                            break;
+                        }
+                    }
+                }
+
+                if (matchingRowIndex == -1)
+                {
+                    DisplayMessage("warning", $"No matching Movies row found for Clean Title: {cleanTitle}");
+                    return false;
+                }
+
+                var rowToUpdate = data[matchingRowIndex];
+
+                // Sheet row number: MOVIES_DATA_RANGE starts at row 3
+                int sheetRowNumber = matchingRowIndex + STARTING_ROW_NUMBER;
+
+                bool stagedFromOther = IsPathUnderRoot(stagedMovieFolder, DriveMapping.OtherWorkingAreaRoot);
+
+                // Pull Directory from sheet (preferred unless the movie was rerouted to Other)
+                string existingDirectoryPath = "";
+                int directoryIdx = -1;
+
+                if (colIndex.TryGetValue(DIRECTORY, out directoryIdx) && directoryIdx < rowToUpdate.Count)
+                {
+                    existingDirectoryPath = rowToUpdate[directoryIdx]?.ToString()?.Trim() ?? "";
+                }
+
+                string directoryPath;
+                if (stagedFromOther)
+                {
+                    directoryPath = Path.Combine(DriveMapping.OtherMoviesLibraryRoot, cleanTitle);
+                }
+                else
+                {
+                    directoryPath = existingDirectoryPath;
+
+                    // Fallback: compute destination if directory missing
+                    if (string.IsNullOrWhiteSpace(directoryPath))
+                    {
+                        string finalDestRoot = PickMoviesLibraryRootFromTitle(cleanTitle, moviesLibraryRoot_1, moviesLibraryRoot_2, moviesLibraryRoot_3);
+                        directoryPath = Path.Combine(finalDestRoot, cleanTitle);
+                    }
+                }
+
+                string overflowReplacementSourceFolder = "";
+                if (stagedFromOther)
+                {
+                    overflowReplacementSourceFolder = FindOriginalMovieFolderForOverflowReplacement(
+                        existingDirectoryPath,
+                        cleanTitle,
+                        directoryPath,
+                        moviesLibraryRoot_1,
+                        moviesLibraryRoot_2,
+                        moviesLibraryRoot_3);
+
+                    if (!string.IsNullOrWhiteSpace(overflowReplacementSourceFolder))
+                    {
+                        DisplayMessage("info", "[MOVIE] Overflow replacement source found: ", 0);
+                        DisplayMessage("data", overflowReplacementSourceFolder);
+                    }
+                }
+
+                // Subtitles check
+                bool hasSubtitles = Directory.GetFiles(stagedMovieFolder, cleanTitle + "*.srt", SearchOption.TopDirectoryOnly).Any();
+
+                // Delete existing destination contents (replace behavior)
+                DeleteExistingMovieFolderContents(directoryPath);
+
+                void QueueCellUpdate(string columnName, string value, string noteRecordSource = null)
+                {
+                    if (!colIndex.TryGetValue(columnName, out int colIdx))
+                        return;
+
+                    // Special handling for Note: preserve if it already mentions the recorded source
+                    if (string.Equals(columnName, "Note", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(noteRecordSource))
+                    {
+                        string existingNote = rowToUpdate.Count > colIdx ? rowToUpdate[colIdx]?.ToString() ?? "" : "";
+                        if (!string.IsNullOrWhiteSpace(existingNote) &&
+                            existingNote.IndexOf(noteRecordSource, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            return;
+                        }
+                    }
+
+                    sheetContext.PendingUpdates.Add(new ValueRange
+                    {
+                        Range = $"Movies!{ColumnNumToLetter(colIdx)}{sheetRowNumber}",
+                        MajorDimension = "ROWS",
+                        Values = new List<IList<object>>
+                {
+                    new List<object> { value }
+                }
+                    });
+
+                    // Keep in-memory row data updated too, so future logic sees latest values
+                    while (rowToUpdate.Count <= colIdx)
+                    {
+                        rowToUpdate.Add("");
+                    }
+
+                    rowToUpdate[colIdx] = value;
+                }
+
+                // Only touch columns that exist in YOUR sheet
+                QueueCellUpdate("Recorded Source", recordedSource);
+                QueueCellUpdate("Status", "n");
+                QueueCellUpdate("Ownership", "R");
+                QueueCellUpdate("StreamFab", recordedSource.Equals("goojara", StringComparison.OrdinalIgnoreCase) || recordedSource.Equals("onoflix", StringComparison.OrdinalIgnoreCase) ? "" : "Y");
+                QueueCellUpdate("Playon", "");
+                QueueCellUpdate("Removed Splashes", "");
+                QueueCellUpdate("Include Subtitles", hasSubtitles ? "Y" : "N");
+                QueueCellUpdate("Note", "", recordedSource);
+                QueueCellUpdate("Date Added", DateTime.Now.ToString("M-d-yyyy"));
+                QueueCellUpdate("Possible Record Source", "");
+                QueueCellUpdate("Resolution", "");
+                QueueCellUpdate("Size", "");
+                QueueCellUpdate("File Type", "");
+                QueueCellUpdate("Movie Has Trailer", "");
+                QueueCellUpdate("SRT Score", "");
+                QueueCellUpdate("File Health", "");
+                QueueCellUpdate("Rating Key", "");
+
+                // If Directory was missing/blank, write it back. If we rerouted to Other,
+                // force the sheet to the real final location on The Bus.
+                if ((stagedFromOther || string.IsNullOrWhiteSpace(existingDirectoryPath)) && colIndex.ContainsKey(DIRECTORY))
+                {
+                    QueueCellUpdate(DIRECTORY, directoryPath);
+                }
+
+                // Commit move: move staged folder into directoryPath
+                CommitMoveFolderContents(stagedMovieFolder, directoryPath);
+
+                MoveArtworkAndDeleteOriginalMovieFolder(
+                    overflowReplacementSourceFolder,
+                    directoryPath,
+                    cleanTitle);
+
+                // Track for one Emby refresh later
+                committedDestinations?.Add(directoryPath);
+
+                DisplayMessage("success", $"Committed: {cleanTitle}", 0);
+                DisplayMessage("default", " -> ", 0);
+                DisplayMessage("data", directoryPath, 2);
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                DisplayMessage("error", "UpdateMoviesSheetRowAndCommitMove failed: ", 0);
+                DisplayMessage("data", ex.Message);
+                return false;
+            }
+        }
+
+        private static void FlushMoviesSheetBatchUpdates(MoviesSheetBatchContext sheetContext)
+        {
+            if (sheetContext == null || !sheetContext.PendingUpdates.Any())
+            {
+                DisplayMessage("info", "No Movies sheet updates to flush.", 2);
+                return;
+            }
+
+            var batchUpdateRequest = new BatchUpdateValuesRequest
+            {
+                ValueInputOption = "USER_ENTERED",
+                Data = sheetContext.PendingUpdates
+            };
+
+            sheetContext.Service.Spreadsheets.Values
+                .BatchUpdate(batchUpdateRequest, SPREADSHEET_ID)
+                .Execute();
+
+            DisplayMessage("success", $"Flushed {sheetContext.PendingUpdates.Count} Movies sheet updates in one batch.", 2);
+
+            sheetContext.PendingUpdates.Clear();
+        }
+
+        private static string PickMoviesLibraryRootFromTitle(string cleanTitle, string root1, string root2, string root3)
+        {
+            // Uses your existing GetSortLetter() logic that already exists in Program.cs
+            char letter = GetSortLetter(cleanTitle);
+
+            if (letter == '#' || (letter >= 'A' && letter <= 'D'))
+                return root1;
+
+            if (letter >= 'E' && letter <= 'M')
+                return root2;
+
+            return root3; // N-Z
+        }
+
+        private static bool IsPathUnderRoot(string path, string root)
+        {
+            string normalizedPath = NormalizePathForComparison(path);
+            string normalizedRoot = NormalizePathForComparison(root);
+
+            if (string.IsNullOrWhiteSpace(normalizedPath) || string.IsNullOrWhiteSpace(normalizedRoot))
+                return false;
+
+            return normalizedPath.Equals(normalizedRoot, StringComparison.OrdinalIgnoreCase) ||
+                   normalizedPath.StartsWith(normalizedRoot + "\\", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string NormalizePathForComparison(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return "";
+
+            string value = path.Trim().Replace('/', '\\');
+            bool isUnc = value.StartsWith(@"\\");
+            string prefix = isUnc ? @"\\" : "";
+            string remainder = isUnc ? value.Substring(2) : value;
+            string[] parts = remainder.Split(new[] { '\\' }, StringSplitOptions.RemoveEmptyEntries);
+
+            return prefix + string.Join(@"\", parts);
+        }
+
+        private static string FindOriginalMovieFolderForOverflowReplacement(
+            string existingDirectoryPath,
+            string cleanTitle,
+            string finalDestFolder,
+            string moviesLibraryRoot_1,
+            string moviesLibraryRoot_2,
+            string moviesLibraryRoot_3)
+        {
+            var candidates = new List<string>();
+            AddReplacementCandidate(candidates, existingDirectoryPath);
+
+            string primaryRoot = PickMoviesLibraryRootFromTitle(cleanTitle, moviesLibraryRoot_1, moviesLibraryRoot_2, moviesLibraryRoot_3);
+            AddReplacementCandidate(candidates, Path.Combine(primaryRoot, cleanTitle));
+
+            foreach (var candidate in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    if (string.IsNullOrWhiteSpace(candidate) || !Directory.Exists(candidate))
+                        continue;
+
+                    if (IsPathUnderRoot(candidate, finalDestFolder) ||
+                        IsPathUnderRoot(finalDestFolder, candidate) ||
+                        IsLikelyOverflowMoviesPath(candidate))
+                    {
+                        continue;
+                    }
+
+                    if (LooksLikeSameMovieFolder(candidate, cleanTitle))
+                        return candidate;
+                }
+                catch
+                {
+                    // Keep scanning other candidates if one path is unavailable.
+                }
+            }
+
+            return "";
+        }
+
+        private static void AddReplacementCandidate(List<string> candidates, string path)
+        {
+            string normalized = TrimTrailingDirectorySeparators(path);
+            if (string.IsNullOrWhiteSpace(normalized))
+                return;
+
+            if (!candidates.Any(p => string.Equals(p, normalized, StringComparison.OrdinalIgnoreCase)))
+                candidates.Add(normalized);
+        }
+
+        private static string TrimTrailingDirectorySeparators(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return "";
+
+            string value = path.Trim().Replace('/', '\\');
+            while (value.Length > 3 && value.EndsWith("\\", StringComparison.Ordinal))
+                value = value.Substring(0, value.Length - 1);
+
+            return value;
+        }
+
+        private static bool IsLikelyOverflowMoviesPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
+
+            if (IsPathUnderRoot(path, DriveMapping.OtherMoviesLibraryRoot))
+                return true;
+
+            string normalized = NormalizePathForComparison(path) + "\\";
+            return normalized.IndexOf("\\The Bus\\Movies\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   normalized.IndexOf("\\Other\\The Bus\\Movies\\", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool LooksLikeSameMovieFolder(string folderPath, string cleanTitle)
+        {
+            if (string.IsNullOrWhiteSpace(folderPath) || string.IsNullOrWhiteSpace(cleanTitle) || !Directory.Exists(folderPath))
+                return false;
+
+            string target = NormalizeMovieNameForComparison(cleanTitle);
+            string folderName = Path.GetFileName(TrimTrailingDirectorySeparators(folderPath));
+
+            if (string.Equals(NormalizeMovieNameForComparison(folderName), target, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            var videoFiles = Directory.GetFiles(folderPath, "*.*", SearchOption.TopDirectoryOnly)
+                .Where(IsMovieVideoFile)
+                .Where(f => !IsTrailerFileName(Path.GetFileNameWithoutExtension(f)))
+                .ToList();
+
+            if (videoFiles.Count > 3)
+                return false;
+
+            return videoFiles.Any(f =>
+                string.Equals(
+                    NormalizeMovieNameForComparison(Path.GetFileNameWithoutExtension(f)),
+                    target,
+                    StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static string NormalizeMovieNameForComparison(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return "";
+
+            string value = DuplicateYearRegex.Replace(name.Trim(), "($1)");
+            value = Regex.Replace(value, @"\s+", " ");
+            return value.Trim().TrimEnd('.');
+        }
+
+        private static bool HasPrimaryMovieVideo(string folderPath, string cleanTitle)
+        {
+            if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+                return false;
+
+            var videoFiles = Directory.GetFiles(folderPath, "*.*", SearchOption.TopDirectoryOnly)
+                .Where(IsMovieVideoFile)
+                .Where(f => !IsTrailerFileName(Path.GetFileNameWithoutExtension(f)))
+                .ToList();
+
+            string target = NormalizeMovieNameForComparison(cleanTitle);
+            return videoFiles.Any(f =>
+                       string.Equals(
+                           NormalizeMovieNameForComparison(Path.GetFileNameWithoutExtension(f)),
+                           target,
+                           StringComparison.OrdinalIgnoreCase)) ||
+                   videoFiles.Count > 0;
+        }
+
+        private static bool IsMovieVideoFile(string path)
+        {
+            string ext = Path.GetExtension(path);
+            return ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase) ||
+                   ext.Equals(".mkv", StringComparison.OrdinalIgnoreCase) ||
+                   ext.Equals(".avi", StringComparison.OrdinalIgnoreCase) ||
+                   ext.Equals(".m4v", StringComparison.OrdinalIgnoreCase) ||
+                   ext.Equals(".mov", StringComparison.OrdinalIgnoreCase) ||
+                   ext.Equals(".webm", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void MoveArtworkAndDeleteOriginalMovieFolder(
+            string originalMovieFolder,
+            string finalDestFolder,
+            string cleanTitle)
+        {
+            if (string.IsNullOrWhiteSpace(originalMovieFolder))
+                return;
+
+            try
+            {
+                if (!Directory.Exists(originalMovieFolder))
+                    return;
+
+                if (IsLikelyOverflowMoviesPath(originalMovieFolder))
+                    return;
+
+                if (!Directory.Exists(finalDestFolder))
+                {
+                    DisplayMessage("warning", "[MOVIE] Original folder cleanup skipped; final destination is missing: ", 0);
+                    DisplayMessage("data", finalDestFolder);
+                    return;
+                }
+
+                if (!LooksLikeSameMovieFolder(originalMovieFolder, cleanTitle))
+                {
+                    DisplayMessage("warning", "[MOVIE] Original folder cleanup skipped; source does not look like the same movie: ", 0);
+                    DisplayMessage("data", originalMovieFolder);
+                    return;
+                }
+
+                if (!HasPrimaryMovieVideo(finalDestFolder, cleanTitle))
+                {
+                    DisplayMessage("warning", "[MOVIE] Original folder cleanup skipped; replacement video was not found at: ", 0);
+                    DisplayMessage("data", finalDestFolder);
+                    return;
+                }
+
+                int movedAssets = MovePreservedReplacementAssets(originalMovieFolder, finalDestFolder);
+                DisplayMessage("info", "[MOVIE] Preserved artwork/trailer files moved from original folder: ", 0);
+                DisplayMessage("data", movedAssets.ToString());
+
+                DeleteOriginalMovieFolder(originalMovieFolder);
+            }
+            catch (Exception ex)
+            {
+                DisplayMessage("warning", "[MOVIE] Original folder cleanup failed: ", 0);
+                DisplayMessage("data", originalMovieFolder, 0);
+                DisplayMessage("warning", " | ", 0);
+                DisplayMessage("data", ex.Message);
+            }
+        }
+
+        private static int MovePreservedReplacementAssets(string originalMovieFolder, string finalDestFolder)
+        {
+            int moved = 0;
+
+            foreach (var sourceFile in Directory.GetFiles(originalMovieFolder, "*.*", SearchOption.AllDirectories)
+                         .Where(IsPreservedReplacementAsset))
+            {
+                try
+                {
+                    string relativePath = GetRelativePathUnderRoot(originalMovieFolder, sourceFile);
+                    string destFile = Path.Combine(finalDestFolder, relativePath);
+
+                    if (File.Exists(destFile))
+                        continue;
+
+                    EnsureDirectory(Path.GetDirectoryName(destFile));
+                    MoveFileAllowingCrossVolume(sourceFile, destFile);
+                    moved++;
+                }
+                catch (Exception ex)
+                {
+                    DisplayMessage("warning", "[MOVIE] Could not preserve asset: ", 0);
+                    DisplayMessage("data", sourceFile, 0);
+                    DisplayMessage("warning", " | ", 0);
+                    DisplayMessage("data", ex.Message);
+                }
+            }
+
+            return moved;
+        }
+
+        private static bool IsPreservedReplacementAsset(string path)
+        {
+            string ext = Path.GetExtension(path);
+            if (ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+                ext.Equals(".png", StringComparison.OrdinalIgnoreCase) ||
+                ext.Equals(".webp", StringComparison.OrdinalIgnoreCase) ||
+                ext.Equals(".bmp", StringComparison.OrdinalIgnoreCase) ||
+                ext.Equals(".gif", StringComparison.OrdinalIgnoreCase) ||
+                ext.Equals(".tbn", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return IsTrailerFileName(Path.GetFileNameWithoutExtension(path));
+        }
+
+        private static string GetRelativePathUnderRoot(string rootPath, string childPath)
+        {
+            try
+            {
+                string root = Path.GetFullPath(rootPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string child = Path.GetFullPath(childPath);
+                string prefix = root + Path.DirectorySeparatorChar;
+
+                if (child.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return child.Substring(prefix.Length);
+            }
+            catch
+            {
+            }
+
+            return Path.GetFileName(childPath);
+        }
+
+        private static void MoveFileAllowingCrossVolume(string sourceFile, string destFile)
+        {
+            try
+            {
+                try { File.SetAttributes(sourceFile, FileAttributes.Normal); } catch { }
+                File.Move(sourceFile, destFile);
+            }
+            catch
+            {
+                File.Copy(sourceFile, destFile);
+                File.SetAttributes(destFile, FileAttributes.Normal);
+                File.Delete(sourceFile);
+            }
+        }
+
+        private static bool DeleteOriginalMovieFolder(string originalMovieFolder)
+        {
+            try
+            {
+                foreach (var file in Directory.GetFiles(originalMovieFolder, "*", SearchOption.AllDirectories))
+                {
+                    try { File.SetAttributes(file, FileAttributes.Normal); } catch { }
+                }
+
+                foreach (var dir in Directory.GetDirectories(originalMovieFolder, "*", SearchOption.AllDirectories)
+                             .OrderByDescending(d => d.Length))
+                {
+                    try { File.SetAttributes(dir, FileAttributes.Normal); } catch { }
+                }
+
+                try { File.SetAttributes(originalMovieFolder, FileAttributes.Normal); } catch { }
+                Directory.Delete(originalMovieFolder, recursive: true);
+
+                if (!Directory.Exists(originalMovieFolder))
+                {
+                    DisplayMessage("success", "[MOVIE] Deleted original movie folder after overflow replacement: ", 0);
+                    DisplayMessage("data", originalMovieFolder);
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                DisplayMessage("warning", "[MOVIE] Could not delete original movie folder: ", 0);
+                DisplayMessage("data", originalMovieFolder, 0);
+                DisplayMessage("warning", " | ", 0);
+                DisplayMessage("data", ex.Message);
+            }
+
+            return false;
+        }
+        private static void DeleteExistingMovieFolderContents(string directoryPath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(directoryPath))
+                    return;
+
+                if (!Directory.Exists(directoryPath))
+                    return;
+
+                // Delete files
+                foreach (var file in Directory.GetFiles(directoryPath, "*.*", SearchOption.AllDirectories))
+                {
+                    string ext = Path.GetExtension(file).ToLower();
+                    string fileName = Path.GetFileName(file).ToLower();
+
+                    // Skip trailer files
+                    if (fileName.Contains("-trailer"))
+                    {
+                        DisplayMessage("data", $"Preserved trailer: {Path.GetFileName(file)}");
+                        continue;
+                    }
+
+                    // Delete only video, subtitle and nfo types
+                    if (ext == ".mp4" || ext == ".mkv" || ext == ".avi" || ext == ".mov" || ext == ".m4v" ||
+                        ext == ".srt" || ext == ".sub" || ext == ".nfo" || ext == ".bif")
+                    {
+                        File.Delete(file);
+                        DisplayMessage("data", $"Deleted old file: {Path.GetFileName(file)}");
+                    }
+                }
+
+                // Delete subdirectories (deepest first)
+                foreach (var dir in Directory.GetDirectories(directoryPath, "*", SearchOption.AllDirectories)
+                             .OrderByDescending(d => d.Length))
+                {
+                    try
+                    {
+                        if (Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any())
+                            Directory.Delete(dir, recursive: false);
+                    }
+                    catch { /* keep going */ }
+                }
+            }
+            catch
+            {
+                // swallow; we don’t want to abort the run on cleanup issues
+            }
+        }
+
+        private static void CommitMoveFolderContents(string stagedFolder, string finalDestFolder)
+        {
+            if (string.IsNullOrWhiteSpace(stagedFolder) || string.IsNullOrWhiteSpace(finalDestFolder))
+                return;
+
+            Directory.CreateDirectory(finalDestFolder);
+
+            // Move files (top level + subfolders)
+            foreach (var dirPath in Directory.GetDirectories(stagedFolder, "*", SearchOption.TopDirectoryOnly))
+            {
+                var name = Path.GetFileName(dirPath.TrimEnd(Path.DirectorySeparatorChar));
+                var destDir = Path.Combine(finalDestFolder, name);
+
+                if (Directory.Exists(destDir))
+                {
+                    // merge if exists
+                    CommitMoveFolderContents(dirPath, destDir);
+                    TryDeleteIfEmpty(dirPath);
+                }
+                else
+                {
+                    Directory.Move(dirPath, destDir);
+                }
+            }
+
+            foreach (var filePath in Directory.GetFiles(stagedFolder, "*.*", SearchOption.TopDirectoryOnly))
+            {
+                var name = Path.GetFileName(filePath);
+                var destFile = Path.Combine(finalDestFolder, name);
+
+                if (File.Exists(destFile))
+                {
+                    try
+                    {
+                        File.SetAttributes(destFile, FileAttributes.Normal);
+                        File.Delete(destFile);
+                    }
+                    catch { /* ignore */ }
+                }
+
+                File.Move(filePath, destFile);
+            }
+
+            TryDeleteIfEmpty(stagedFolder);
+        }
+
+        private static void TryDeleteIfEmpty(string folder)
+        {
+            try
+            {
+                if (Directory.Exists(folder) && !Directory.EnumerateFileSystemEntries(folder).Any())
+                    Directory.Delete(folder, recursive: false);
+            }
+            catch { }
+        }
+
+        static void LogTv(string message)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine(message);
+            Console.ResetColor();
+        }
+
+        private static char GetSortLetter(string title)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+                return '#';
+
+            string t = title.Trim();
+
+            // Ignore "The "
+            if (t.StartsWith("The ", StringComparison.OrdinalIgnoreCase))
+                t = t.Substring(4).TrimStart();
+
+            // If the first meaningful char is a digit/symbol, treat as '#'
+            // We only use a LETTER A-Z for sorting, otherwise '#'
+            foreach (char ch in t)
+            {
+                if (char.IsWhiteSpace(ch))
+                    continue;
+
+                if (char.IsLetter(ch))
+                    return char.ToUpperInvariant(ch);
+
+                // first non-space is NOT a letter -> numbers/symbols go to '#'
+                return '#';
+            }
+
+            return '#';
+        }
+
+        private static string GetTvWorkingRoot(char letter, string r1, string r2, string r3, string r4, string r5, string r6)
+        {
+            // '#-b' contains non-letters and A-B.
+            if (letter == '#') return r1;
+            if (letter <= 'B') return r1;
+            if (letter >= 'C' && letter <= 'F') return r2;
+            if (letter >= 'G' && letter <= 'L') return r3;
+            if (letter >= 'M' && letter <= 'P') return r4;
+            if (letter >= 'Q' && letter <= 'S') return r5;
+            return r6; // T-Z
+        }
+
+        private static string GetMovieWorkingRoot(char letter, string r1, string r2, string r3)
+        {
+            // '#-D' contains non-letters and A-D.
+            if (letter == '#') return r1;
+            if (letter <= 'D') return r1;
+            if (letter >= 'E' && letter <= 'M') return r2;
+            return r3; // N-Z
+        }
+
+        public class LetterRange
+        {
+            public char Start { get; set; }
+            public char End { get; set; }
+            public string Label { get; set; }
+            public string RootPath { get; set; }
+
+            public bool Contains(char c)
+            {
+                return c >= Start && c <= End;
+            }
+        }
+
+        private static void EnsureDirectory(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return;
+            if (!Directory.Exists(path)) Directory.CreateDirectory(path);
+        }
+
+        private static string GetUniqueDirectoryPath(string desiredPath)
+        {
+            if (!Directory.Exists(desiredPath)) return desiredPath;
+
+            int i = 2;
+            while (true)
+            {
+                string candidate = desiredPath + " (" + i + ")";
+                if (!Directory.Exists(candidate)) return candidate;
+                i++;
+            }
+        }
+
+        private static string GetUniqueFilePath(string desiredPath)
+        {
+            if (!File.Exists(desiredPath)) return desiredPath;
+
+            string dir = Path.GetDirectoryName(desiredPath);
+            string name = Path.GetFileNameWithoutExtension(desiredPath);
+            string ext = Path.GetExtension(desiredPath);
+
+            int i = 2;
+            while (true)
+            {
+                string candidate = Path.Combine(dir, name + " (" + i + ")" + ext);
+                if (!File.Exists(candidate)) return candidate;
+                i++;
+            }
+        }
+
+        private static void MoveFileRobust(string sourceFile, string destFile)
+        {
+            // Try fast move; if that fails (cross-volume / UNC), fall back to copy + delete.
+            try
+            {
+                EnsureDirectory(Path.GetDirectoryName(destFile));
+                File.Move(sourceFile, destFile);
+                Type("Moved ", 0, 0, 0);
+                Type(sourceFile, 0, 0, 0, "Blue");
+                Type(" -> ", 0, 0, 0);
+                Type(destFile, 0, 0, 1, "Blue");
+            }
+            catch
+            {
+                EnsureDirectory(Path.GetDirectoryName(destFile));
+                File.Copy(sourceFile, destFile);
+                File.SetAttributes(destFile, FileAttributes.Normal);
+                File.Delete(sourceFile);
+                Type("Copied+Deleted ", 0, 0, 0);
+                Type(sourceFile, 0, 0, 0, "Blue");
+                Type(" -> ", 0, 0, 0);
+                Type(destFile, 0, 0, 1, "Blue");
+            }
+        }
+
+        private static void MoveDirectoryRobust(string sourceDir, string destDir)
+        {
+            // Try fast move; if that fails (cross-volume / UNC), fall back to copy+delete.
+            try
+            {
+                EnsureDirectory(Path.GetDirectoryName(destDir));
+                Directory.Move(sourceDir, destDir);
+                Type("Moved ", 0, 0, 0);
+                Type(sourceDir, 0, 0, 0, "Blue");
+                Type(" -> ", 0, 0, 0);
+                Type(destDir, 0, 0, 1, "Blue");
+            }
+            catch
+            {
+                CopyDirectoryRecursive(sourceDir, destDir);
+                Directory.Delete(sourceDir, recursive: true);
+                Type("Copied+Deleted ", 0, 0, 0);
+                Type(sourceDir, 0, 0, 0, "Blue");
+                Type(" -> ", 0, 0, 0);
+                Type(destDir, 0, 0, 1, "Blue");
+            }
+        }
+
+        private static void CopyDirectoryRecursive(string sourceDir, string destDir)
+        {
+            EnsureDirectory(destDir);
+
+            foreach (var file in Directory.GetFiles(sourceDir))
+            {
+                string destFile = GetUniqueFilePath(Path.Combine(destDir, Path.GetFileName(file)));
+                File.Copy(file, destFile);
+                File.SetAttributes(destFile, FileAttributes.Normal);
+            }
+
+            foreach (var dir in Directory.GetDirectories(sourceDir))
+            {
+                string childName = Path.GetFileName(dir);
+                CopyDirectoryRecursive(dir, Path.Combine(destDir, childName));
+            }
+        }
 
         protected static string CleanAmpersands(string dirtyString)
         {
@@ -4337,6 +8814,278 @@ namespace SheetsQuickstart
             Type("Please make sure your choice matches an option exactly from the menu.", 14, 100, 2);
         }
 
+        private static void RunSelectedMovieNfoFiles()
+        {
+            IList<IList<Object>> movieData = CallGetData(movieSheetVariables, MOVIES_TITLE_RANGE, MOVIES_DATA_RANGE);
+
+            DisplayMessage("info", "Adding/Overwriting selected NFO files...");
+            CreateNfoFiles(movieData, movieSheetVariables, 2);
+        }
+
+        private static PlexMetadataSheetUpdater.Summary RunPlexMetadataSheetSync(SheetsService sheetsService, IList<int> movieRowNumbersToUpdate)
+        {
+            string plexBase = GetPlexBaseUrlFromVarsSheet();
+            if (string.IsNullOrWhiteSpace(plexBase))
+            {
+                Type("Plex base URL (Enter for http://192.168.0.5:32400): ", 0, 0, 0);
+                plexBase = Console.ReadLine();
+                if (string.IsNullOrWhiteSpace(plexBase)) plexBase = "http://192.168.0.5:32400";
+            }
+
+            string plexToken = GetPlexTokenFromVarsSheet();
+            if (string.IsNullOrWhiteSpace(plexToken))
+            {
+                Type("Plex token (paste X-Plex-Token): ", 0, 0, 0);
+                plexToken = Console.ReadLine();
+            }
+
+            if (string.IsNullOrWhiteSpace(plexToken))
+            {
+                DisplayMessage("error", "Plex metadata sync skipped because no Plex token was found.");
+                return new PlexMetadataSheetUpdater.Summary();
+            }
+
+            int sectionId = GetPlexMoviesSectionIdFromVarsSheet();
+
+            return PlexMetadataSheetUpdater.Run(
+                sheetsService,
+                SPREADSHEET_ID,
+                (t, msg, ind) => DisplayMessage(t, msg, ind),
+                new PlexMetadataSheetUpdater.Options
+                {
+                    PlexBaseUrl = plexBase,
+                    PlexToken = plexToken,
+                    MoviesSectionId = sectionId,
+                    MoviesSheetName = "Movies",
+                    MoviesHeaderRow = 2,
+                    MoviesDataStartRow = 3,
+                    StatusFilterValue = "n",
+                    IncludeNfoBodyTagsAsLabels = true,
+                    MovieRowNumbersToUpdate = movieRowNumbersToUpdate == null
+                        ? new List<int>()
+                        : movieRowNumbersToUpdate.ToList()
+                });
+        }
+
+        private static void ClearMovieQuickCreateMarks(SheetsService sheetsService, IList<int> movieRowNumbers)
+        {
+            if (sheetsService == null || movieRowNumbers == null || movieRowNumbers.Count == 0)
+                return;
+
+            var rowsToClear = movieRowNumbers
+                .Where(r => r > 0)
+                .Distinct()
+                .OrderBy(r => r)
+                .ToList();
+
+            if (rowsToClear.Count == 0)
+                return;
+
+            try
+            {
+                var headerResponse = sheetsService.Spreadsheets.Values.Get(SPREADSHEET_ID, MOVIES_TITLE_RANGE).Execute();
+                var headers = headerResponse.Values != null && headerResponse.Values.Count > 0
+                    ? headerResponse.Values[0]
+                    : null;
+
+                if (headers == null)
+                {
+                    DisplayMessage("error", "Could not clear Quick Create marks because the Movies header row was not found.");
+                    return;
+                }
+
+                int quickCreateColumnIndex = -1;
+                for (int i = 0; i < headers.Count; i++)
+                {
+                    string header = (headers[i] ?? "").ToString().Trim();
+                    if (string.Equals(header, QUICK_CREATE, StringComparison.OrdinalIgnoreCase))
+                    {
+                        quickCreateColumnIndex = i;
+                        break;
+                    }
+                }
+
+                if (quickCreateColumnIndex < 0)
+                {
+                    DisplayMessage("error", "Could not clear Quick Create marks because the Movies 'Quick Create' column was not found.");
+                    return;
+                }
+
+                string quickCreateColumn = ColumnNumToLetter(quickCreateColumnIndex);
+                var updates = new List<ValueRange>();
+
+                foreach (int rowNumber in rowsToClear)
+                {
+                    updates.Add(new ValueRange
+                    {
+                        Range = "Movies!" + quickCreateColumn + rowNumber,
+                        MajorDimension = "ROWS",
+                        Values = new List<IList<object>> { new List<object> { "" } }
+                    });
+                }
+
+                var batchRequest = new BatchUpdateValuesRequest
+                {
+                    ValueInputOption = "USER_ENTERED",
+                    Data = updates
+                };
+
+                sheetsService.Spreadsheets.Values.BatchUpdate(batchRequest, SPREADSHEET_ID).Execute();
+
+                DisplayMessage("success", "Cleared Quick Create marks for ", 0);
+                DisplayMessage("data", rowsToClear.Count.ToString(), 0);
+                DisplayMessage("success", " ratingKey metadata row(s).", 2);
+            }
+            catch (Exception ex)
+            {
+                DisplayMessage("error", "Failed to clear Quick Create marks after ratingKey metadata sync: " + ex.Message, 2);
+            }
+        }
+
+        private static string GetPlexBaseUrlFromVarsSheet()
+        {
+            try
+            {
+                DisplayMessage("warning", "Grabbing Plex base URL from VARS sheet... ", 0);
+
+                string baseUrl = GetVarsValueByName("Plex Base URL", "PLEX_BASE_URL", "PlexBaseUrl", "Plex URL", "PLEX_URL");
+                if (!string.IsNullOrWhiteSpace(baseUrl))
+                {
+                    DisplayMessage("success", "DONE");
+                    return baseUrl;
+                }
+
+                DisplayMessage("warning", "not found.");
+            }
+            catch (Exception ex)
+            {
+                DisplayMessage("warning", "could not read Plex base URL from VARS: " + ex.Message);
+            }
+
+            return "";
+        }
+
+        private static string GetPlexTokenFromVarsSheet()
+        {
+            try
+            {
+                DisplayMessage("warning", "Grabbing Plex token from VARS sheet... ", 0);
+
+                string token = GetVarsValueByName("Plex Token", "PLEX_TOKEN", "X-Plex-Token", "PlexToken");
+                if (string.IsNullOrWhiteSpace(token))
+                    token = GetFirstCellValue("VARS!A4");
+
+                if (!string.IsNullOrWhiteSpace(token))
+                {
+                    DisplayMessage("success", "DONE");
+                    return token;
+                }
+
+                DisplayMessage("warning", "not found.");
+            }
+            catch (Exception ex)
+            {
+                DisplayMessage("warning", "could not read Plex token from VARS: " + ex.Message);
+            }
+
+            return "";
+        }
+
+        private static int GetPlexMoviesSectionIdFromVarsSheet()
+        {
+            try
+            {
+                DisplayMessage("warning", "Grabbing Plex Movies section ID from VARS sheet... ", 0);
+
+                string sectionIdText = GetVarsValueByName(
+                    "Plex Movies Section ID",
+                    "PLEX_MOVIES_SECTION_ID",
+                    "Plex Movie Section ID",
+                    "PLEX_MOVIE_SECTION_ID",
+                    "Movies Section ID",
+                    "Plex Section ID");
+
+                int sectionId;
+                if (!string.IsNullOrWhiteSpace(sectionIdText) &&
+                    int.TryParse(sectionIdText.Trim(), out sectionId) &&
+                    sectionId > 0)
+                {
+                    DisplayMessage("success", "DONE");
+                    return sectionId;
+                }
+
+                DisplayMessage("warning", "not found. Using 1.");
+            }
+            catch (Exception ex)
+            {
+                DisplayMessage("warning", "could not read Plex Movies section ID from VARS: " + ex.Message);
+            }
+
+            return 1;
+        }
+
+        private static string GetVarsValueByName(params string[] names)
+        {
+            IList<IList<object>> varsData = GetData("VARS!A:ZZ");
+            if (varsData == null || names == null || names.Length == 0)
+                return "";
+
+            var normalizedNames = names
+                .Select(NormalizeVarsKey)
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .ToList();
+
+            if (varsData.Count >= 3)
+            {
+                var labelRow = varsData[1];
+                var valueRow = varsData[2];
+
+                for (int i = 0; i < labelRow.Count; i++)
+                {
+                    string key = (labelRow[i] ?? "").ToString().Trim();
+                    if (!normalizedNames.Contains(NormalizeVarsKey(key)))
+                        continue;
+
+                    if (valueRow != null && valueRow.Count > i)
+                        return (valueRow[i] ?? "").ToString().Trim();
+
+                    return "";
+                }
+            }
+
+            foreach (var row in varsData)
+            {
+                if (row == null || row.Count == 0)
+                    continue;
+
+                string key = (row[0] ?? "").ToString().Trim();
+                if (!normalizedNames.Contains(NormalizeVarsKey(key)))
+                    continue;
+
+                if (row.Count > 1)
+                    return (row[1] ?? "").ToString().Trim();
+            }
+
+            return "";
+        }
+
+        private static string GetFirstCellValue(string range)
+        {
+            IList<IList<object>> rows = GetData(range);
+            if (rows == null || rows.Count == 0 || rows[0] == null || rows[0].Count == 0)
+                return "";
+
+            return (rows[0][0] ?? "").ToString().Trim();
+        }
+
+        private static string NormalizeVarsKey(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "";
+
+            return new string(value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+        }
+
         /// <summary>
         /// Steps through the given data and determines which types of NFO Files to write then sends them to be written.
         /// </summary>
@@ -4346,15 +9095,23 @@ namespace SheetsQuickstart
         /// <param name="isYouTubeFile">For the YouTube filenames we need to trim the title so we don't run into the character limit issue.</param>
         protected static void CreateNfoFiles(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, int type, bool isYouTubeFile = false)
         {
+            BatchUpdateValuesRequest batchRequest = new BatchUpdateValuesRequest
+            {
+                ValueInputOption = "USER_ENTERED",
+                Data = new List<ValueRange>() // Initialize the list
+            };
+
             int nfoFileNotFoundCount = 0, nfoFileOverwrittenCount = 0, nfoFileCreatedCount = 0;
             bool directoryFound = false;
-            var cleanTitle = "";
+            var specialTitle = "";
             var movieDirectory = "";
             var nfoBody = "";
             var rowNum = "";
             var status = "";
             var quickCreate = "";
+            var movieTitle = "";
             var quickCreateInt = 0;
+            var cantFindInt = 0;
 
             foreach (var row in data)
             {
@@ -4363,13 +9120,20 @@ namespace SheetsQuickstart
                     try
                     {
                         directoryFound = false;
-                        cleanTitle = row[Convert.ToInt16(sheetVariables[CLEAN_TITLE])].ToString();
+                        movieTitle = row[Convert.ToInt16(sheetVariables[CLEAN_TITLE])].ToString();
+                        specialTitle = row[Convert.ToInt16(sheetVariables["Special Title"])].ToString();
                         movieDirectory = row[Convert.ToInt16(sheetVariables[DIRECTORY])].ToString();
                         nfoBody = row[Convert.ToInt16(sheetVariables[NFO_BODY])].ToString();
                         rowNum = row[Convert.ToInt16(sheetVariables[ROW_NUM])].ToString();
+                        cantFindInt = Convert.ToInt16(sheetVariables["Can't Find"]);
                         status = "";
                         quickCreate = "";
                         quickCreateInt = 0;
+
+                        if (!specialTitle.Equals(""))
+                        {
+                            movieTitle = specialTitle;
+                        }
                     }
                     catch (Exception e)
                     {
@@ -4380,9 +9144,9 @@ namespace SheetsQuickstart
                     // also, we don't need to worry about checking for status.
                     if (isYouTubeFile)
                     {
-                        if (cleanTitle.Length > 30)
+                        if (movieTitle.Length > 30)
                         {
-                            cleanTitle = cleanTitle.Substring(0, 30).Trim();
+                            movieTitle = movieTitle.Substring(0, 30).Trim();
                         }
                     }
                     else
@@ -4406,7 +9170,7 @@ namespace SheetsQuickstart
                             {
                                 directoryFound = true;
 
-                                string fileLocation = movieDirectory + "\\" + cleanTitle + ".nfo";
+                                string fileLocation = movieDirectory + "\\" + movieTitle + ".nfo";
 
                                 if (type == 1) // All movies, overwrite old NFO files AND put in new ones, but only if the folder exists (I don't want folders with only NFO files sitting in them).
                                 {
@@ -4425,6 +9189,14 @@ namespace SheetsQuickstart
                                         Type(fileLocation, 0, 0, 1, "Blue");
                                     }
                                     WriteNfoFile(fileLocation, nfoBody);
+
+                                    var strCellToPutData = "Movies!" + ColumnNumToLetter(cantFindInt) + rowNum;
+                                    batchRequest.Data.Add(new ValueRange
+                                    {
+                                        Range = strCellToPutData,
+                                        MajorDimension = "ROWS",
+                                        Values = new List<IList<object>> { new List<object> { "" } }
+                                    });
 
                                 }
                                 else if (type == 2) // Only selected movies marked with an x.
@@ -4448,7 +9220,12 @@ namespace SheetsQuickstart
                                             Type(fileLocation, 0, 0, 1, "Blue");
                                         }
 
-                                        WriteSingleCellToSheet("", strCellToPutData, 0);
+                                        batchRequest.Data.Add(new ValueRange
+                                        {
+                                            Range = strCellToPutData,
+                                            MajorDimension = "ROWS",
+                                            Values = new List<IList<object>> { new List<object> { "" } }
+                                        });
 
                                     }
 
@@ -4471,6 +9248,14 @@ namespace SheetsQuickstart
                                 Type("We did not find the directory for: ", 0, 0, 0, "Red");
                                 Type(movieDirectory, 0, 0, 1, "Yellow");
                                 nfoFileNotFoundCount++;
+
+                                var strCellToPutData = "Movies!" + ColumnNumToLetter(cantFindInt) + rowNum;
+                                batchRequest.Data.Add(new ValueRange
+                                {
+                                    Range = strCellToPutData,
+                                    MajorDimension = "ROWS",
+                                    Values = new List<IList<object>> { new List<object> { "X" } }
+                                });
                             }
                         }
                     }
@@ -4481,6 +9266,7 @@ namespace SheetsQuickstart
 
                 }
             }
+            BulkWriteToSheet(batchRequest);
 
             // Print out results.
             Type("It looks like that's the end of it.", 3, 100, 2);
@@ -4562,7 +9348,7 @@ namespace SheetsQuickstart
                                     if (row.Count > quickCreateInt && quickCreate.ToUpper() == "X")
                                     {
                                         WriteNfoFile(fileLocation, nfoBody);
-                                        var strCellToPutData = "Movies!" + ColumnNumToLetter(quickCreateInt) + rowNum;
+                                        var strCellToPutData = "DB!" + ColumnNumToLetter(quickCreateInt) + rowNum;
 
                                         if (File.Exists(fileLocation))
                                         {
@@ -4621,7 +9407,7 @@ namespace SheetsQuickstart
         }
 
         /// <summary>
-        /// 
+        ///
         /// </summary>
         /// <param name="sType"></param>
         /// <param name="onlyQuick"></param>
@@ -4835,6 +9621,29 @@ namespace SheetsQuickstart
 
         } // End GetData()
 
+        private static SheetsService CreateSheetsService()
+        {
+            UserCredential credential;
+
+            using (var stream =
+                new FileStream("credentials.json", FileMode.Open, FileAccess.Read))
+            {
+                string credPath = "token.json";
+                credential = GoogleWebAuthorizationBroker.AuthorizeAsync(
+                    GoogleClientSecrets.FromStream(stream).Secrets,
+                    SCOPES,
+                    "user",
+                    CancellationToken.None,
+                    new FileDataStore(credPath, true)).Result;
+            }
+
+            return new SheetsService(new BaseClientService.Initializer
+            {
+                HttpClientInitializer = credential,
+                ApplicationName = APLICATION_NAME,
+            });
+        }
+
         protected static Dictionary<string, int> CheckColumns(Dictionary<string, int> SheetVariables)
         {
             Dictionary<string, int> NotFoundColumns = new Dictionary<string, int>();
@@ -4848,6 +9657,92 @@ namespace SheetsQuickstart
             }
             return NotFoundColumns;
         } // End CheckColumns()
+
+        protected static void InputMovieRuntimes(IList<IList<Object>> data, Dictionary<string, int> sheetVariables)
+        {
+            BatchUpdateValuesRequest batchRequest = new BatchUpdateValuesRequest
+            {
+                ValueInputOption = "USER_ENTERED",
+                Data = new List<ValueRange>() // Initialize the list
+            };
+
+            string strRowNum = "",
+                    strRuntime = "",
+                    strMovieTitle = "",
+                    strTmdbId = "";
+
+
+            IList<IList<Object>> filteredData = new List<IList<Object>>();
+
+            // First loop through the data to filter out the rows we won't be working with.
+            foreach (var row in data)
+            {
+                if (row.Count > 70)
+                {
+                    strRuntime = row[Convert.ToInt16(sheetVariables["Runtime"])].ToString();
+
+                    if (strRuntime.Equals(""))
+                    {
+                        filteredData.Add(row);
+                    }
+                }
+            }
+
+            foreach (var row in filteredData)
+            {
+                try
+                {
+
+                    strRowNum = row[Convert.ToInt16(sheetVariables[ROW_NUM])].ToString();
+                    strRuntime = row[Convert.ToInt16(sheetVariables["Runtime"])].ToString();
+                    strMovieTitle = row[Convert.ToInt16(sheetVariables["IMDB Title"])].ToString();
+                    strTmdbId = row[Convert.ToInt16(sheetVariables["TMDB ID"])].ToString();
+
+                    if (strRuntime.Equals(""))
+                    {
+                        DisplayMessage("info", " Getting Runtime for: ", 0);
+                        DisplayMessage("data", strMovieTitle);
+
+                        dynamic movieDetails = TmdbApi.MoviesGetDetailsByTmdbId(strTmdbId);
+
+                        if (movieDetails.runtime != null)
+                        {
+                            string runTime = movieDetails.runtime.ToString("D3");
+                            string strCellToPutData = "Movies!" + ColumnNumToLetter(Convert.ToInt16(sheetVariables["Runtime"])) + strRowNum;
+
+                            batchRequest.Data.Add(new ValueRange
+                            {
+                                Range = strCellToPutData,
+                                MajorDimension = "ROWS",
+                                Values = new List<IList<object>> { new List<object> { runTime } }
+                            });
+                        }
+                        else if (movieDetails.status_code == 34)
+                        {
+                            DisplayMessage("warning", " --Runtime was not available");
+
+                            string strCellToPutData = "Movies!" + ColumnNumToLetter(Convert.ToInt16(sheetVariables["Runtime"])) + strRowNum;
+
+                            batchRequest.Data.Add(new ValueRange
+                            {
+                                Range = strCellToPutData,
+                                MajorDimension = "ROWS",
+                                Values = new List<IList<object>> { new List<object> { "N/A" } }
+                            });
+                        }
+
+
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DisplayMessage("error", "Something went wrong getting the Runtime for: ", 0);
+                    DisplayMessage("warning", strMovieTitle);
+                    DisplayMessage("harderror", ex.Message, 2);
+                }
+            }
+            BulkWriteToSheet(batchRequest);
+        }
 
         /// <summary>
         /// Grabs the list of movies from the Google Sheet. Sends each IMDB ID to theMovieDB.org API to get the movie data.
@@ -4889,7 +9784,8 @@ namespace SheetsQuickstart
                             imdbTitleValue = "",
                             sortTitleValue = "",
                             releaseDateValue = "",
-                            youTubeTrailerIdValue = "";
+                            youTubeTrailerIdValue = "",
+                            posterValue = "";
 
                     // The following variables will be filled from the TMDB API call.
                     string tmdbId = "",
@@ -4897,7 +9793,8 @@ namespace SheetsQuickstart
                             tmdbSortTitle = "",
                             tmdbRating = "",
                             tmdbReleaseDate = "",
-                            tmdbPlot = "";
+                            tmdbPlot = "",
+                            tmdbPosterUrl = "";
 
                     // The following variables are used to keep track of the column number of each variable to input the data back to the Google Sheet.
                     int tmdbIdColumnNum = 0, // Used to input the returned ID back into the Google Sheet.
@@ -4906,7 +9803,8 @@ namespace SheetsQuickstart
                         quickCreateColumnNum = 0, // Used to mark the movies that Plot gets updated.
                         imdbTitleColumnNum = 0,
                         sortTitleColumnNum = 0,
-                        releaseDateColumnNum = 0;
+                        releaseDateColumnNum = 0,
+                        posterColumnNum = 0;
 
                     try
                     {
@@ -4928,10 +9826,12 @@ namespace SheetsQuickstart
                         releaseDateValue = row[Convert.ToInt16(sheetVariables["Release Date"])].ToString();
                         releaseDateColumnNum = Convert.ToInt16(sheetVariables["Release Date"]);
                         youTubeTrailerIdValue = row[Convert.ToInt16(sheetVariables["YouTube Trailer ID"])].ToString();
+                        posterValue = row[Convert.ToInt16(sheetVariables["Poster"])].ToString();
+                        posterColumnNum = Convert.ToInt16(sheetVariables["Poster"]);
 
                         if (sheetVariables.ContainsKey(QUICK_CREATE)) quickCreateColumnNum = Convert.ToInt16(sheetVariables[QUICK_CREATE]);
 
-                        if (imdbTitleValue.Equals("") || sortTitleValue.Equals("") || releaseDateValue.Equals("") || tmdbIdValue.Equals("") || tmdbRatingValue.Equals("") || plotValue.Equals("") || overwriteData)
+                        if (imdbTitleValue.Equals("") || sortTitleValue.Equals("") || releaseDateValue.Equals("") || tmdbIdValue.Equals("") || tmdbRatingValue.Equals("") || plotValue.Equals("") || posterValue.Equals("") || overwriteData)
                         {
                             logWritten = true;
                             DisplayMessage("warning", "Making TMDB Call... ", 0);
@@ -4946,11 +9846,24 @@ namespace SheetsQuickstart
                                 {
                                     dynamic tmdbR = tmdbResponse.movie_results[0];
                                     tmdbId = tmdbR.id.Value.ToString();
-                                    tmdbRating = tmdbR.vote_average.ToString();
+                                    double voteAverage = tmdbR.vote_average;
+                                    double roundedAverage = Math.Round(voteAverage, 1, MidpointRounding.AwayFromZero);
+                                    tmdbRating = roundedAverage.ToString();
                                     tmdbPlot = tmdbR.overview.ToString();
                                     tmdbTitle = tmdbR.title.ToString() + " (" + tmdbR.release_date?.ToString().Substring(0, 4) + ")";
                                     tmdbSortTitle = tmdbTitle.Substring(0, 4) == "The " ? tmdbTitle.Substring(4) : tmdbTitle;
                                     tmdbReleaseDate = tmdbR.release_date.ToString();
+                                    string posterPath = tmdbR.poster_path?.ToString();
+
+                                    if (!string.IsNullOrWhiteSpace(posterPath))
+                                    {
+                                        tmdbPosterUrl = "https://image.tmdb.org/t/p/w300" + posterPath;
+                                    }
+                                    else
+                                    {
+                                        tmdbPosterUrl = "https://placehold.co/200x300?text=No+Image";
+                                    }
+
                                     if (!tmdbRating.Contains(".")) tmdbRating += ".0";
 
                                     string message = !overwriteData ? "Missing data for: " : "Overwriting data for: ";
@@ -4987,6 +9900,16 @@ namespace SheetsQuickstart
                                         Values = new List<IList<object>> { new List<object> { tmdbTitle } }
                                     });
 
+                                    if (overwriteData)
+                                    {
+                                        dataOverwritten = true;
+                                        DisplayMessage("info", "Title overwritten for: ", 0);
+                                        DisplayMessage("default", tmdbTitle);
+                                        DisplayMessage("default", imdbTitleValue, 0);
+                                        DisplayMessage("info", " updated to: ", 0);
+                                        DisplayMessage("default", tmdbTitle);
+                                    }
+
                                 }
 
                                 if (tmdbTitle != "" && sortTitleValue.Equals(""))
@@ -4999,6 +9922,16 @@ namespace SheetsQuickstart
                                         MajorDimension = "ROWS",
                                         Values = new List<IList<object>> { new List<object> { tmdbSortTitle } }
                                     });
+
+                                    if (overwriteData)
+                                    {
+                                        dataOverwritten = true;
+                                        DisplayMessage("info", "Sort Title overwritten for: ", 0);
+                                        DisplayMessage("default", tmdbTitle);
+                                        DisplayMessage("default", sortTitleValue, 0);
+                                        DisplayMessage("info", " updated to: ", 0);
+                                        DisplayMessage("default", tmdbSortTitle);
+                                    }
                                 }
 
                                 if (tmdbIdValue.Equals("") || (overwriteData && !tmdbIdValue.Equals(tmdbId)))
@@ -5013,6 +9946,16 @@ namespace SheetsQuickstart
                                             MajorDimension = "ROWS",
                                             Values = new List<IList<object>> { new List<object> { tmdbId } }
                                         });
+
+                                        if (overwriteData)
+                                        {
+                                            dataOverwritten = true;
+                                            DisplayMessage("info", "TMDB ID overwritten for: ", 0);
+                                            DisplayMessage("default", tmdbTitle);
+                                            DisplayMessage("default", tmdbIdValue, 0);
+                                            DisplayMessage("info", " updated to: ", 0);
+                                            DisplayMessage("default", tmdbId);
+                                        }
                                     }
                                     else
                                     {
@@ -5032,6 +9975,16 @@ namespace SheetsQuickstart
                                             MajorDimension = "ROWS",
                                             Values = new List<IList<object>> { new List<object> { tmdbRating } }
                                         });
+
+                                        if (overwriteData)
+                                        {
+                                            dataOverwritten = true;
+                                            DisplayMessage("info", "TMDB Rating overwritten for: ", 0);
+                                            DisplayMessage("default", tmdbTitle);
+                                            DisplayMessage("default", tmdbRatingValue, 0);
+                                            DisplayMessage("info", " updated to: ", 0);
+                                            DisplayMessage("default", tmdbRating);
+                                        }
                                     }
                                     else
                                     {
@@ -5051,6 +10004,16 @@ namespace SheetsQuickstart
                                             MajorDimension = "ROWS",
                                             Values = new List<IList<object>> { new List<object> { tmdbPlot } }
                                         });
+
+                                        if (overwriteData)
+                                        {
+                                            dataOverwritten = true;
+                                            DisplayMessage("info", "Plot overwritten for: ", 0);
+                                            DisplayMessage("default", tmdbTitle);
+                                            DisplayMessage("default", plotValue, 0);
+                                            DisplayMessage("info", " updated to: ", 0);
+                                            DisplayMessage("default", tmdbPlot);
+                                        }
                                     }
                                     else
                                     {
@@ -5058,10 +10021,24 @@ namespace SheetsQuickstart
                                     }
                                 }
 
-                                if (releaseDateValue.Equals("") || (overwriteData && !releaseDateValue.Equals(tmdbReleaseDate)))
+                                if (releaseDateValue.Equals("") || overwriteData)
                                 {
                                     if (tmdbReleaseDate != "")
                                     {
+                                        if (overwriteData && (!releaseDateValue.Equals("")))
+                                        {
+                                            // Now that we have confirmed both dates aren't empty. Let's parse the strings to dates in order to correctly compare them.
+                                            string date1 = releaseDateValue;
+                                            string date2 = tmdbReleaseDate;
+
+                                            // Parse both strings into DateTime objects
+                                            DateTime parsedDate1 = DateTime.Parse(date1);
+                                            DateTime parsedDate2 = DateTime.Parse(date2);
+
+                                            // If the dates are equal to each other, then we can just exit out of here.
+                                            if (parsedDate1 == parsedDate2) { break; }
+                                        }
+
                                         strCellToPutData = "Movies!" + ColumnNumToLetter(releaseDateColumnNum) + rowNum;
 
                                         batchRequest.Data.Add(new ValueRange
@@ -5070,10 +10047,42 @@ namespace SheetsQuickstart
                                             MajorDimension = "ROWS",
                                             Values = new List<IList<object>> { new List<object> { tmdbReleaseDate } }
                                         });
+
+                                        if (overwriteData)
+                                        {
+                                            dataOverwritten = true;
+                                            DisplayMessage("info", "Release Date overwritten for: ", 0);
+                                            DisplayMessage("default", tmdbTitle);
+                                            DisplayMessage("default", releaseDateValue, 0);
+                                            DisplayMessage("info", " updated to: ", 0);
+                                            DisplayMessage("default", tmdbReleaseDate);
+                                        }
                                     }
                                     else
                                     {
                                         intReleaseDateNotFoundCount++;
+                                    }
+                                }
+
+                                if (posterValue.Equals("") || (overwriteData && !posterValue.Equals(tmdbPosterUrl)))
+                                {
+                                    if (tmdbPosterUrl != "")
+                                    {
+                                        strCellToPutData = "Movies!" + ColumnNumToLetter(posterColumnNum) + rowNum;
+
+                                        batchRequest.Data.Add(new ValueRange
+                                        {
+                                            Range = strCellToPutData,
+                                            MajorDimension = "ROWS",
+                                            Values = new List<IList<object>> { new List<object> { tmdbPosterUrl } }
+                                        });
+
+                                        if (overwriteData)
+                                        {
+                                            dataOverwritten = true;
+                                            DisplayMessage("info", "Poster overwritten for: ", 0);
+                                            DisplayMessage("default", tmdbTitle);
+                                        }
                                     }
                                 }
                             }
@@ -5121,7 +10130,8 @@ namespace SheetsQuickstart
                                                 if (videoOfficial == "TRUE")
                                                 {
                                                     officialTrailerId = video.key;
-                                                } else
+                                                }
+                                                else
                                                 {
                                                     trailerId = video.key;
                                                 }
@@ -5140,7 +10150,8 @@ namespace SheetsQuickstart
                                                 MajorDimension = "ROWS",
                                                 Values = new List<IList<object>> { new List<object> { trailerIdToWrite } }
                                             });
-                                        } else
+                                        }
+                                        else
                                         {
                                             strCellToPutData = "Movies!" + ColumnNumToLetter(Convert.ToInt16(sheetVariables["YouTube Trailer ID"])) + rowNum;
 
@@ -5151,7 +10162,8 @@ namespace SheetsQuickstart
                                                 Values = new List<IList<object>> { new List<object> { "N/A" } }
                                             });
                                         }
-                                    } else
+                                    }
+                                    else
                                     {
                                         strCellToPutData = "Movies!" + ColumnNumToLetter(Convert.ToInt16(sheetVariables["YouTube Trailer ID"])) + rowNum;
 
@@ -5215,7 +10227,6 @@ namespace SheetsQuickstart
             Type("TMDB Ratings not available: " + intTmdbRatingNotFoundCount, 0, 0, 1, "Red");
             Type("Plots not available: " + intPlotNotFoundCount, 0, 0, 1, "Red");
             Type("Release Date not available: " + intReleaseDateNotFoundCount, 0, 0, 1, "Red");
-
         }
 
         /// <summary>
@@ -5282,14 +10293,15 @@ namespace SheetsQuickstart
                         else if (!autoTitleValue.Equals("") && !autoTitleValue.Equals("Loading..."))
                         {
                             movieTitle = autoTitleValue;
-                        } else
+                        }
+                        else
                         {
                             movieTitle = "row num " + rowNum;
                         }
 
                         if (!autoContentRatingValue.Equals("") && contentRatingValue.Equals(""))
                         {
-                            if (autoContentRatingValue.Equals("Loading..."))
+                            if (autoContentRatingValue.Equals("Loading...") || autoContentRatingValue.Equals("#N/A"))
                             {
                                 DisplayMessage("warning", "Auto Content Rating has not yet loaded for: ", 0);
                                 DisplayMessage("info", movieTitle, 0);
@@ -5346,7 +10358,7 @@ namespace SheetsQuickstart
 
                         if (!autoMpaaRatingValue.Equals("") && mpaaRatingValue.Equals(""))
                         {
-                            if (autoMpaaRatingValue.Equals("Loading..."))
+                            if (autoMpaaRatingValue.Equals("Loading...") || autoMpaaRatingValue.Equals("#N/A"))
                             {
                                 DisplayMessage("warning", "Auto MPAA has not yet loaded for: ", 0);
                                 DisplayMessage("info", movieTitle, 0);
@@ -5360,9 +10372,11 @@ namespace SheetsQuickstart
 
                                 try
                                 {
-                                    if (autoMpaaRatingValue.Equals("#N/A")) {
+                                    if (autoMpaaRatingValue.Equals("#N/A"))
+                                    {
                                         autoMpaaRatingValue = "X";
-                                    } else if (!autoMpaaRatingValue.ToString().Contains("Rated "))
+                                    }
+                                    else if (!autoMpaaRatingValue.ToString().Contains("Rated "))
                                     {
                                         autoMpaaRatingValue = "X";
                                     }
@@ -5411,7 +10425,8 @@ namespace SheetsQuickstart
             if (intTitlesLoadingCount == 0 && intContentRatingLoadingCount == 0 && intMpaaRatingLoadingCount == 0)
             {
                 return false;
-            } else
+            }
+            else
             {
                 return true;
             }
@@ -5476,7 +10491,8 @@ namespace SheetsQuickstart
                         else if (!autoTitle.Equals("") && !autoTitle.Equals("Loading..."))
                         {
                             movieTitle = autoTitle;
-                        } else
+                        }
+                        else
                         {
                             movieTitle = "row num " + rowNum;
                         }
@@ -5617,7 +10633,7 @@ namespace SheetsQuickstart
             Console.SetCursorPosition(0, currentLineCursor);
         }
 
-        protected static void ClearSelectedRowData(IList<IList<Object>> data, Dictionary<string, int> sheetVariables)
+        protected static void ClearSelectedRowData(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, IList<IList<Object>> clearList = null)
         {
             DisplayMessage("info", "We will now look for selected rows to clear", 2);
 
@@ -5628,6 +10644,8 @@ namespace SheetsQuickstart
             };
 
             bool writeData = false;
+            List<ValueRange> skipAdditions = new List<ValueRange>();
+
             foreach (var row in data)
             {
                 if (row.Count > 55)
@@ -5645,8 +10663,9 @@ namespace SheetsQuickstart
                     if (sheetQuickCreateValue.ToUpper() == "X")
                     {
                         writeData = true;
-                        string rowNum = row[Convert.ToInt16(sheetVariables[ROW_NUM])].ToString();
 
+                        // --- CLEAR MOVIE SHEET CELLS ---
+                        string rowNum = row[Convert.ToInt16(sheetVariables[ROW_NUM])].ToString();
                         foreach (var entry in sheetVariables)
                         {
                             if (!entry.Key.Equals(ROW_NUM))
@@ -5660,6 +10679,35 @@ namespace SheetsQuickstart
                                 });
                             }
                         }
+
+
+
+                        // --- HANDLE CLEAR LIST ---
+                        if (clearList != null && sheetVariables.ContainsKey("TMDB ID"))
+                        {
+                            string tmdbId = row[sheetVariables["TMDB ID"]].ToString().Trim();
+
+                            // Check if it's already in clearList (including newly added during this method execution)
+                            bool existsInClearList = clearList.Any(entry => entry.Count > 0 && entry[0].ToString() == tmdbId);
+
+                            if (!existsInClearList && !string.IsNullOrEmpty(tmdbId))
+                            {
+                                // Find next empty row index in clearList (starts at row 3)
+                                int nextEmptyRowIndex = clearList.Count + 3;
+
+                                // Add to the batch update request
+                                skipAdditions.Add(new ValueRange
+                                {
+                                    Range = $"Autopopulate Actors!D{nextEmptyRowIndex}",
+                                    MajorDimension = "ROWS",
+                                    Values = new List<IList<object>> { new List<object> { tmdbId } }
+                                });
+
+                                // Add to clearList immediately so duplicates are avoided in this run
+                                clearList.Add(new List<object> { tmdbId });
+                            }
+                        }
+
                     }
                 }
             }
@@ -5668,13 +10716,26 @@ namespace SheetsQuickstart
             {
                 var BatchUpdateValuesResponse = BulkWriteToSheet(batchRequest);
                 DisplayMessage("info", "Looks like that's it.", 2);
-            } else
+            }
+            else
             {
                 DisplayMessage("warning", "No row was selected to clear", 2);
             }
+
+            // Append to "Autopopulate Actors" sheet if needed
+            if (skipAdditions.Count > 0)
+            {
+                BatchUpdateValuesRequest skipRequest = new BatchUpdateValuesRequest
+                {
+                    ValueInputOption = "USER_ENTERED",
+                    Data = skipAdditions
+                };
+
+                BulkWriteToSheet(skipRequest);
+            }
         }
 
-        protected static void FillInStreamingProviders(IList<IList<Object>> data, Dictionary<string, int> sheetVariables)
+        protected static void FillInStreamingProviders(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, bool overwrite = false)
         {
             DisplayMessage("info", "Filling in the streaming providers", 2);
 
@@ -5701,12 +10762,11 @@ namespace SheetsQuickstart
                     string tmdbId = row[Convert.ToInt16(sheetVariables["TMDB ID"])].ToString();
                     string streamFab = row[Convert.ToInt16(sheetVariables["StreamFab"])].ToString();
                     string resolution = row[Convert.ToInt16(sheetVariables["Resolution"])].ToString();
-                    string recordSource = row[Convert.ToInt16(sheetVariables["Possible Record Source"])].ToString();
-                    string imdbTitle = row[Convert.ToInt16(sheetVariables["IMDB Title"])].ToString();
+                    string fileType = row[Convert.ToInt16(sheetVariables["File Type"])].ToString().ToLower();
 
                     int resolutionValue = resolution != "" ? int.Parse(resolution.Replace("p", "")) : 0;
 
-                    if ((tmdbId != "" && tmdbId != "N/A") && (streamFab != "Y" || resolutionValue < 1080))
+                    if ((tmdbId != "" && tmdbId != "N/A") && (streamFab != "Y" || resolutionValue < 1080 || fileType != "mkv"))
                     {
                         filteredData.Add(row);
                     }
@@ -5725,6 +10785,8 @@ namespace SheetsQuickstart
                 string resolution = filteredRow[Convert.ToInt16(sheetVariables["Resolution"])].ToString();
                 string recordSource = filteredRow[Convert.ToInt16(sheetVariables["Possible Record Source"])].ToString();
                 string imdbTitle = filteredRow[Convert.ToInt16(sheetVariables["IMDB Title"])].ToString();
+                string recordedSource = filteredRow[Convert.ToInt16(sheetVariables["Recorded Source"])].ToString();
+                string fileType = filteredRow[Convert.ToInt16(sheetVariables["File Type"])].ToString();
 
                 DisplayMessage("default", $"{currentCheckRow} of {filteredData.Count} | ", 0);
                 DisplayMessage("log", "Checking for: ", 0);
@@ -5736,22 +10798,86 @@ namespace SheetsQuickstart
                     ArrayList providers = new ArrayList();
                     if (tmdbResponse != null && tmdbResponse.GetType() != typeof(string) && tmdbResponse?.results != null && tmdbResponse.results.Count != 0)
                     {
-                        string[] skipProviders = { 
-                            "Paramount Plus Apple TV Channel",
-                            "Paramount+ Roku Premium Channel",
-                            "Paramount+ Amazon Channel"
+                        // If recordedSource is not empty, I need it to match up with how it is listed in includedProviders
+                        if (recordedSource != "")
+                        {
+                            switch (recordedSource)
+                            {
+                                case "Prime":
+                                    recordedSource = "Amazon Prime Video";
+                                    break;
+
+                                case "Paramount+":
+                                    recordedSource = "Paramount Plus Premium";
+                                    break;
+
+                                case "Disney+":
+                                    recordedSource = "Disney Plus";
+                                    break;
+
+                                case "HBO Max":
+                                    recordedSource = "HBO Max Amazon Channel";
+                                    break;
+
+                                case "Peacock":
+                                    recordedSource = "Peacock Premium";
+                                    break;
+
+                                case "Apple TV+":
+                                    recordedSource = "Apple TV";
+                                    break;
+                            }
+                        }
+
+                        string[] includeProviders =
+                        {
+                            "Amazon Prime Video",
+                            "Angel Studios",
+                            "Apple TV",
+                            "Crunchyroll",
+                            "Disney Plus",
+                            "Hulu",
+                            "HBO Max Amazon Channel",
+                            "Netflix",
+                            "Paramount Plus Premium",
+                            "Paramount+ with Showtime",
+                            "Peacock Premium"
                         };
+
+                        // Other providers that I may have an interest in the future.
+                        // Put them here for reference and to add to the includedProviders array if I ever do sign up for them.
+                        // BritBox Amazon Channel
+                        // A&E Crime Central
+                        // Lifetime Movie Club
+                        // History Vault
+                        // Starz Amazon Channel
+                        // MGM+ Amazon Channel
+
                         var flatrateResponse = tmdbResponse?.results?.US?.flatrate;
                         var freeResponse = tmdbResponse?.results?.US?.free;
+
+                        var streamFabEqualsR = string.Equals(streamFab, "R", StringComparison.OrdinalIgnoreCase);
+                        var fileTypeNotEqualMkv = !string.Equals(fileType, "mkv", StringComparison.OrdinalIgnoreCase);
+                        var disneyOrHulu = new[] { "Disney+", "Disney Plus", "Hulu" };
 
                         if (flatrateResponse != null)
                         {
                             foreach (var streamer in flatrateResponse)
                             {
-                                string providerName = streamer.provider_name;
-                                if (!skipProviders.Contains(providerName.Trim()))
+                                string providerName = streamer.provider_name?.ToString().Trim();
+
+                                var sameProviderGroup =
+                                    disneyOrHulu.Contains(recordedSource) &&
+                                    disneyOrHulu.Contains(providerName);
+
+                                var shouldSkipBecauseSameSource =
+                                    string.Equals(providerName, recordedSource, StringComparison.OrdinalIgnoreCase) ||
+                                    sameProviderGroup;
+
+                                if ((!shouldSkipBecauseSameSource || streamFabEqualsR || fileTypeNotEqualMkv) &&
+                                    includeProviders.Contains(providerName))
                                 {
-                                    providers.Add(providerName.Trim());
+                                    providers.Add(providerName);
                                 }
                             }
                         }
@@ -5760,10 +10886,20 @@ namespace SheetsQuickstart
                         {
                             foreach (var streamer in freeResponse)
                             {
-                                string providerName = streamer.provider_name;
-                                if (!skipProviders.Contains(providerName.Trim()))
+                                string providerName = streamer.provider_name?.ToString().Trim();
+
+                                var sameProviderGroup =
+                                    disneyOrHulu.Contains(recordedSource) &&
+                                    disneyOrHulu.Contains(providerName);
+
+                                var shouldSkipBecauseSameSource =
+                                    string.Equals(providerName, recordedSource, StringComparison.OrdinalIgnoreCase) ||
+                                    sameProviderGroup;
+
+                                if ((!shouldSkipBecauseSameSource || streamFabEqualsR || fileTypeNotEqualMkv) &&
+                                    includeProviders.Contains(providerName))
                                 {
-                                    providers.Add(providerName.Trim());
+                                    providers.Add(providerName);
                                 }
                             }
                         }
@@ -5812,6 +10948,250 @@ namespace SheetsQuickstart
             {
                 DisplayMessage("warning", "No streaming providers needed to be updated", 2);
             }
+        }
+
+        protected static void FillInTvShowStreamingProviders(IList<IList<Object>> data, Dictionary<string, int> sheetVariables)
+        {
+            DisplayMessage("info", "Filling in the TV Show possible record sources", 2);
+
+            BatchUpdateValuesRequest batchRequest = new BatchUpdateValuesRequest
+            {
+                ValueInputOption = "USER_ENTERED",
+                Data = new List<ValueRange>()
+            };
+
+            IList<IList<Object>> filteredData = new List<IList<Object>>();
+
+            bool writeData = false;
+            int fullRowCount = 0;
+            int currentCheckRow = 1;
+
+            DisplayMessage("data", $"{data.Count} rows found. We will now filter them out.", 2);
+
+            foreach (var row in data)
+            {
+                string tvdbId = GetSheetCell(row, sheetVariables, "TVDB ID");
+                if (string.IsNullOrWhiteSpace(tvdbId))
+                {
+                    continue;
+                }
+
+                fullRowCount++;
+
+                string streamFab = GetSheetCell(row, sheetVariables, "StreamFab");
+                string resolution = GetSheetCell(row, sheetVariables, "Resolution");
+                string tvShowFormat = GetSheetCell(row, sheetVariables, "Format");
+
+                bool streamFabRecorded = IsStreamFabRecorded(streamFab);
+                bool resolutionIs1080p = GetResolutionValue(resolution) == 1080;
+                bool formatIsMkv = string.Equals(tvShowFormat, "mkv", StringComparison.OrdinalIgnoreCase);
+
+                if (!streamFabRecorded || !resolutionIs1080p || !formatIsMkv)
+                {
+                    filteredData.Add(row);
+                }
+            }
+
+            DisplayMessage("data", $"Of the {data.Count} rows found", 1);
+            DisplayMessage("data", $"{fullRowCount} rows have been identified as rows with actual TV Show data.", 1);
+            DisplayMessage("data", $"{filteredData.Count} of those rows need possible record sources checked.", 1);
+            DisplayMessage("info", "We will now step through them and check for streaming providers.", 2);
+
+            foreach (var filteredRow in filteredData)
+            {
+                string tvdbId = GetSheetCell(filteredRow, sheetVariables, "TVDB ID");
+                string recordSource = GetSheetCell(filteredRow, sheetVariables, "Possible Record Source");
+                string seriesName = GetSheetCell(filteredRow, sheetVariables, "Series Name");
+                string cleanNameWithYear = GetSheetCell(filteredRow, sheetVariables, "Clean Name with Year");
+                string rowNum = GetSheetCell(filteredRow, sheetVariables, ROW_NUM);
+
+                if (string.IsNullOrWhiteSpace(seriesName))
+                {
+                    seriesName = cleanNameWithYear;
+                }
+
+                DisplayMessage("default", $"{currentCheckRow} of {filteredData.Count} | ", 0);
+                DisplayMessage("log", "Checking for: ", 0);
+                DisplayMessage("info", seriesName);
+                currentCheckRow++;
+
+                dynamic tmdbResponse = TmdbApi.TvGetWatchProvidersByTvdbId(tvdbId);
+                try
+                {
+                    if (tmdbResponse != null && tmdbResponse.GetType() != typeof(string) && tmdbResponse?.results != null && tmdbResponse.results.Count != 0)
+                    {
+                        string list = BuildIncludedStreamingProviderList(tmdbResponse, "", true);
+
+                        if (recordSource != list)
+                        {
+                            DisplayMessage("log", "Updated: ", 0);
+                            DisplayMessage("warning", recordSource, 0);
+                            DisplayMessage("log", " to ", 0);
+                            DisplayMessage("success", list, 0);
+                            DisplayMessage("log", " for: ", 0);
+                            DisplayMessage("data", seriesName);
+
+                            string strCellToPutData = "DB!" + ColumnNumToLetter(Convert.ToInt16(sheetVariables["Possible Record Source"])) + rowNum;
+                            writeData = true;
+                            batchRequest.Data.Add(new ValueRange
+                            {
+                                Range = strCellToPutData,
+                                MajorDimension = "ROWS",
+                                Values = new List<IList<object>> { new List<object> { list } }
+                            });
+                        }
+                    }
+                    else
+                    {
+                        DisplayMessage("info", "An error occurred when getting TMDB data for: ", 0);
+                        DisplayMessage("log", seriesName);
+                        DisplayMessage("warning", tmdbResponse);
+                    }
+                }
+                catch (Exception e)
+                {
+                    Type("Something went wrong grabbing the streaming provider for: " + seriesName, 0, 0, 1, "Red");
+                    Type(e.Message, 0, 0, 2, "DarkRed");
+                }
+            }
+
+            if (writeData)
+            {
+                var BatchUpdateValuesResponse = BulkWriteToSheet(batchRequest);
+                DisplayMessage("info", "Looks like that's it.", 2);
+            }
+            else
+            {
+                DisplayMessage("warning", "No TV Show possible record sources needed to be updated", 2);
+            }
+        }
+
+        private static string GetSheetCell(IList<Object> row, Dictionary<string, int> sheetVariables, string columnName)
+        {
+            if (!sheetVariables.ContainsKey(columnName))
+            {
+                return "";
+            }
+
+            int columnIndex = sheetVariables[columnName];
+            if (columnIndex < 0 || columnIndex >= row.Count)
+            {
+                return "";
+            }
+
+            return row[columnIndex]?.ToString() ?? "";
+        }
+
+        private static bool IsStreamFabRecorded(string streamFab)
+        {
+            return !string.IsNullOrWhiteSpace(streamFab) &&
+                streamFab.Trim().StartsWith("Y", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static int GetResolutionValue(string resolution)
+        {
+            if (string.IsNullOrWhiteSpace(resolution))
+            {
+                return 0;
+            }
+
+            string digits = Regex.Replace(resolution, @"[^\d]", "");
+            int resolutionValue;
+            return int.TryParse(digits, out resolutionValue) ? resolutionValue : 0;
+        }
+
+        private static string BuildIncludedStreamingProviderList(dynamic tmdbResponse, string recordedSource, bool allowSameSource)
+        {
+            ArrayList providers = new ArrayList();
+            string[] includeProviders = GetIncludedStreamingProviders();
+            string normalizedRecordedSource = NormalizeRecordedSourceForProvider(recordedSource);
+
+            var flatrateResponse = tmdbResponse?.results?.US?.flatrate;
+            var freeResponse = tmdbResponse?.results?.US?.free;
+
+            AddIncludedStreamingProviders(flatrateResponse, providers, includeProviders, normalizedRecordedSource, allowSameSource);
+            AddIncludedStreamingProviders(freeResponse, providers, includeProviders, normalizedRecordedSource, allowSameSource);
+
+            return String.Join(",", providers.ToArray());
+        }
+
+        private static void AddIncludedStreamingProviders(dynamic providerResponse, ArrayList providers, string[] includeProviders, string recordedSource, bool allowSameSource)
+        {
+            if (providerResponse == null)
+            {
+                return;
+            }
+
+            string[] disneyOrHulu = { "Disney+", "Disney Plus", "Hulu" };
+
+            foreach (var streamer in providerResponse)
+            {
+                string providerName = streamer.provider_name?.ToString().Trim();
+
+                bool sameProviderGroup =
+                    disneyOrHulu.Contains(recordedSource) &&
+                    disneyOrHulu.Contains(providerName);
+
+                bool shouldSkipBecauseSameSource =
+                    string.Equals(providerName, recordedSource, StringComparison.OrdinalIgnoreCase) ||
+                    sameProviderGroup;
+
+                if ((allowSameSource || !shouldSkipBecauseSameSource) &&
+                    includeProviders.Contains(providerName))
+                {
+                    providers.Add(providerName);
+                }
+            }
+        }
+
+        private static string NormalizeRecordedSourceForProvider(string recordedSource)
+        {
+            if (string.IsNullOrWhiteSpace(recordedSource))
+            {
+                return "";
+            }
+
+            switch (recordedSource.Trim())
+            {
+                case "Prime":
+                    return "Amazon Prime Video";
+
+                case "Paramount+":
+                    return "Paramount Plus Premium";
+
+                case "Disney+":
+                    return "Disney Plus";
+
+                case "HBO Max":
+                    return "HBO Max Amazon Channel";
+
+                case "Peacock":
+                    return "Peacock Premium";
+
+                case "Apple TV+":
+                    return "Apple TV";
+
+                default:
+                    return recordedSource.Trim();
+            }
+        }
+
+        private static string[] GetIncludedStreamingProviders()
+        {
+            return new[]
+            {
+                "Amazon Prime Video",
+                "Angel Studios",
+                "Apple TV",
+                "Crunchyroll",
+                "Disney Plus",
+                "Hulu",
+                "HBO Max Amazon Channel",
+                "Netflix",
+                "Paramount Plus Premium",
+                "Paramount+ with Showtime",
+                "Peacock Premium"
+            };
         }
 
         protected static void FillInStreamingProviderForSelectedId(Dictionary<string, int> sheetVariables, string tmdbId, string rowNum, string imdbTitle)
@@ -5879,6 +11259,12 @@ namespace SheetsQuickstart
         }
         protected static void FillInVideoResolution(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, bool overwrite)
         {
+            BatchUpdateValuesRequest batchRequest = new BatchUpdateValuesRequest
+            {
+                ValueInputOption = "USER_ENTERED",
+                Data = new List<ValueRange>() // Initialize the list
+            };
+
             foreach (var row in data)
             {
                 if (row.Count > 25)
@@ -5893,7 +11279,7 @@ namespace SheetsQuickstart
                     try
                     {
                         // If the directory path in the Google Sheet isn't empty, but the video resolution is, then let's try to find the video and add the resolution to the Google Sheet.
-                        if (status != "" && movieDirectory != "" && streamFab.Contains("Y") && (resolution == "" || overwrite))
+                        if (status != "" && movieDirectory != "" && (resolution == "" || overwrite))
                         {
                             // Let's go ahead and look for the hard drive letter now.
                             var hardDriveLetters = FindDriveLetters(movieDirectory);
@@ -5902,7 +11288,7 @@ namespace SheetsQuickstart
                             {
                                 string[] fileEntries = Directory.GetFiles(movieDirectory);
 
-                                ArrayList videoFiles = GrabMovieFiles(fileEntries);
+                                ArrayList videoFiles = GrabMovieFiles(fileEntries, false);
 
                                 if (videoFiles.Count > 0)
                                 {
@@ -5924,26 +11310,42 @@ namespace SheetsQuickstart
                                         {
                                             if (resolution != calculatedResolution)
                                             {
-                                                string strCellToPutData = "Movies!" + ColumnNumToLetter(Convert.ToInt16(sheetVariables["Resolution"])) + rowNum;
-
-                                                if (WriteSingleCellToSheet(calculatedResolution, strCellToPutData))
+                                                try
                                                 {
+                                                    string strCellToPutData = "Movies!" + ColumnNumToLetter(Convert.ToInt16(sheetVariables["Resolution"])) + rowNum;
+                                                    batchRequest.Data.Add(new ValueRange
+                                                    {
+                                                        Range = strCellToPutData,
+                                                        MajorDimension = "ROWS",
+                                                        Values = new List<IList<object>> { new List<object> { calculatedResolution } }
+                                                    });
+
                                                     DisplayMessage("success", "Resolution ", 0);
                                                     DisplayMessage("info", calculatedResolution, 0);
-                                                    DisplayMessage("success", " saved for: ", 0);
+                                                    if (overwrite)
+                                                    {
+                                                        DisplayMessage("success", " overwritten from: ", 0);
+                                                        DisplayMessage("info", resolution, 0);
+                                                        DisplayMessage("success", " for: ", 0);
+                                                    }
+                                                    else DisplayMessage("success", " saved for: ", 0);
+
                                                     DisplayMessage("info", cleanTitle, 0);
                                                     DisplayMessage("log", " at- ", 0);
                                                     DisplayMessage("info", strCellToPutData);
                                                 }
-                                                else
+                                                catch (Exception ex)
                                                 {
                                                     DisplayMessage("error", "An error occured saving the resolution for: ", 0);
                                                     DisplayMessage("warning", cleanTitle);
+                                                    DisplayMessage("harderror", ex.Message);
+                                                    throw;
                                                 }
                                             }
                                             else
                                             {
-                                                DisplayMessage("default", "Resolution for ", 0);
+                                                DisplayMessage("info", resolution, 0);
+                                                DisplayMessage("default", " Resolution for ", 0);
                                                 DisplayMessage("info", cleanTitle, 0);
                                                 DisplayMessage("default", " is correct");
                                             }
@@ -5954,7 +11356,8 @@ namespace SheetsQuickstart
                                             Type("calculatedResolution failed for: ", 0, 0, 0, "Red");
                                             Type(cleanTitle, 0, 0, 2, "DarkRed");
                                         }
-                                    } else
+                                    }
+                                    else
                                     {
                                         Type("We could not find the actual video file for: ", 0, 0, 0, "Red");
                                         Type(cleanTitle, 0, 0, 2, "DarkRed");
@@ -5981,6 +11384,8 @@ namespace SheetsQuickstart
                     }
                 }
             } // End foreach
+            var BatchUpdateValuesResponse = BulkWriteToSheet(batchRequest);
+            DisplayMessage("info", "Looks like that's it.", 2);
         }
 
         private static async Task<string> GetVideoDurationAsync(string videoId)
@@ -6042,6 +11447,7 @@ namespace SheetsQuickstart
                             if (Directory.Exists(movieDirectory))
                             {
                                 Type("Directory found. Now checking for an existing trailer.", 0, 0, 1, "Green");
+                                SanitizeTrailerFilename(movieDirectory, cleanTitle);
                                 string[] fileEntries = Directory.GetFiles(movieDirectory);
 
                                 ArrayList videoFiles = GrabMovieFiles(fileEntries);
@@ -6051,7 +11457,7 @@ namespace SheetsQuickstart
                                 // We will still check for an existing trailer in the directory before going to download one.
                                 foreach (var videoFile in videoFiles)
                                 {
-                                    if (Path.GetFileName(videoFile.ToString()).Contains("-trailer"))
+                                    if (IsTrailerFileForTitle(videoFile.ToString(), cleanTitle))
                                     {
                                         foundTrailer = true;
                                     }
@@ -6111,7 +11517,23 @@ namespace SheetsQuickstart
                                         var processInfo = new ProcessStartInfo
                                         {
                                             FileName = "yt-dlp",  // Assumes yt-dlp is installed and in PATH
-                                            Arguments = $"-q -o \"{movieDirectory}/{cleanTitle}-trailer.%(ext)s\" {trailerURL}",
+                                            Arguments =
+                                                // Select MP4 video+audio (<=1080p), fall back to single MP4 if needed
+                                                $"-f \"bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4]\" " +
+                                                // Force final container MP4 after merge
+                                                $"--merge-output-format mp4 " +
+                                                // Clean, stable filename (final file will be exactly ...-trailer.mp4)
+                                                $"-o \"{movieDirectory}/{cleanTitle}-trailer.%(ext)s\" " +
+                                                // Progress lines (for your console progress handler)
+                                                $"--newline " +
+                                                // Avoid partial/fragment leftovers
+                                                $"--no-part --no-keep-fragments " +
+                                                // Tidy names; avoids odd chars but keeps our extension place
+                                                $"--restrict-filenames " +
+                                                // Overwrite existing trailer if present
+                                                $"--force-overwrites " +
+                                                // The URL last
+                                                $"{trailerURL}",
                                             RedirectStandardOutput = true,
                                             RedirectStandardError = true,
                                             UseShellExecute = false,
@@ -6127,10 +11549,19 @@ namespace SheetsQuickstart
                                             // Capture standard output and errors
                                             process.OutputDataReceived += (sender, args) =>
                                             {
-                                                if (args.Data != null)
+                                                if (!string.IsNullOrWhiteSpace(args.Data))
                                                 {
-                                                    output += args.Data + Environment.NewLine;
-                                                    Console.WriteLine(args.Data); // Optional: print to console
+                                                    // yt-dlp progress lines usually contain a % somewhere in them
+                                                    if (args.Data.Contains("%") || args.Data.Contains("fragment"))
+                                                    {
+                                                        // Overwrite same line in console
+                                                        Console.Write("\r" + args.Data.PadRight(Console.WindowWidth - 1));
+                                                    }
+                                                    else
+                                                    {
+                                                        // For non-progress messages, just print normally
+                                                        Console.WriteLine(args.Data);
+                                                    }
                                                 }
                                             };
 
@@ -6157,6 +11588,8 @@ namespace SheetsQuickstart
                                             }
                                             else
                                             {
+                                                SanitizeTrailerFilename(movieDirectory, cleanTitle);
+
                                                 string strCellToPutData = "Movies!" + ColumnNumToLetter(Convert.ToInt16(sheetVariables["YouTube Trailer ID"])) + rowNum;
 
                                                 if (WriteSingleCellToSheet(videoId, strCellToPutData))
@@ -6205,6 +11638,12 @@ namespace SheetsQuickstart
 
         protected static void DownloadMovieTrailers(IList<IList<Object>> data, Dictionary<string, int> sheetVariables)
         {
+            BatchUpdateValuesRequest batchRequest = new BatchUpdateValuesRequest
+            {
+                ValueInputOption = "USER_ENTERED",
+                Data = new List<ValueRange>() // Initialize the list
+            };
+
             int movieTrailerDownloadedCount = 0;
             int movieAlreadyHasATrailerCount = 0;
             int errorDownloadingTrailerCount = 0;
@@ -6235,9 +11674,9 @@ namespace SheetsQuickstart
                         // We will have to fix the YouTube ID to a valid one in order to fix it.
                         else if (movieHasTrailerData == "N/A")
                         {
-                            Type(cleanTitle, 0, 0, 0);
-                            Type(" has errored before.", 0, 0, 0, "yellow");
-                            Type(" We will skip this one.", 0, 0, 2, "blue");
+                            //Type(cleanTitle, 0, 0, 0);
+                            //Type(" has errored before.", 0, 0, 0, "yellow");
+                            //Type(" We will skip this one.", 0, 0, 2, "blue");
                             errorDownloadingTrailerCount++;
                         }
                         else if (youtubeTrailerId == "X")
@@ -6257,6 +11696,7 @@ namespace SheetsQuickstart
                                 if (Directory.Exists(movieDirectory))
                                 {
                                     Type("Directory found. Will now check for an existing trailer.", 0, 0, 1, "Green");
+                                    SanitizeTrailerFilename(movieDirectory, cleanTitle);
                                     string[] fileEntries = Directory.GetFiles(movieDirectory);
 
                                     ArrayList videoFiles = GrabMovieFiles(fileEntries);
@@ -6266,7 +11706,7 @@ namespace SheetsQuickstart
                                     // Now check for an existing trailer in the directory.
                                     foreach (var videoFile in videoFiles)
                                     {
-                                        if (Path.GetFileName(videoFile.ToString()).Contains("-trailer"))
+                                        if (IsTrailerFileForTitle(videoFile.ToString(), cleanTitle))
                                         {
                                             foundTrailer = true;
                                         }
@@ -6280,7 +11720,23 @@ namespace SheetsQuickstart
                                         var processInfo = new ProcessStartInfo
                                         {
                                             FileName = "yt-dlp",  // Assumes yt-dlp is installed and in PATH
-                                            Arguments = $"-q --progress -o \"{movieDirectory}/{cleanTitle}-trailer.%(ext)s\" {trailerURL}",
+                                            Arguments =
+                                                // Select MP4 video+audio (<=1080p), fall back to single MP4 if needed
+                                                $"-f \"bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4]\" " +
+                                                // Force final container MP4 after merge
+                                                $"--merge-output-format mp4 " +
+                                                // Clean, stable filename (final file will be exactly ...-trailer.mp4)
+                                                $"-o \"{movieDirectory}/{cleanTitle}-trailer.%(ext)s\" " +
+                                                // Progress lines (for your console progress handler)
+                                                $"--newline " +
+                                                // Avoid partial/fragment leftovers
+                                                $"--no-part --no-keep-fragments " +
+                                                // Tidy names; avoids odd chars but keeps our extension place
+                                                $"--restrict-filenames " +
+                                                // Overwrite existing trailer if present
+                                                $"--force-overwrites " +
+                                                // The URL last
+                                                $"{trailerURL}",
                                             RedirectStandardOutput = true,
                                             RedirectStandardError = true,
                                             UseShellExecute = false,
@@ -6296,10 +11752,19 @@ namespace SheetsQuickstart
                                             // Capture standard output and errors
                                             process.OutputDataReceived += (sender, args) =>
                                             {
-                                                if (args.Data != null)
+                                                if (!string.IsNullOrWhiteSpace(args.Data))
                                                 {
-                                                    output += args.Data + Environment.NewLine;
-                                                    Console.WriteLine(args.Data); // Optional: print to console
+                                                    // yt-dlp progress lines usually contain a % somewhere in them
+                                                    if (args.Data.Contains("%") || args.Data.Contains("fragment"))
+                                                    {
+                                                        // Overwrite same line in console
+                                                        Console.Write("\r" + args.Data.PadRight(Console.WindowWidth - 1));
+                                                    }
+                                                    else
+                                                    {
+                                                        // For non-progress messages, just print normally
+                                                        Console.WriteLine(args.Data);
+                                                    }
                                                 }
                                             };
 
@@ -6329,18 +11794,21 @@ namespace SheetsQuickstart
 
                                                 string strCellToPutData = "Movies!" + ColumnNumToLetter(Convert.ToInt16(sheetVariables["Movie Has Trailer"])) + rowNum;
 
-                                                if (WriteSingleCellToSheet("N/A", strCellToPutData))
+                                                batchRequest.Data.Add(new ValueRange
                                                 {
-                                                    DisplayMessage("success", "Successfully recorded in the Google sheet that the trailer for ", 0);
-                                                    DisplayMessage("info", cleanTitle, 0);
-                                                    DisplayMessage("success", " failed to download at- ", 0);
-                                                    DisplayMessage("log", strCellToPutData, 2);
-                                                }
-                                                else
-                                                {
-                                                    DisplayMessage("error", "An error occured while trying to record in the Google sheet that the trailer failed to download for: ", 0);
-                                                    DisplayMessage("warning", cleanTitle, 2);
-                                                }
+                                                    Range = strCellToPutData,
+                                                    MajorDimension = "ROWS",
+                                                    Values = new List<IList<object>> { new List<object> { "N/A" } }
+                                                });
+
+                                                DisplayMessage("success", "Recorded in the Google sheet that the trailer for ", 0);
+                                                DisplayMessage("info", cleanTitle, 0);
+                                                DisplayMessage("success", " failed to download at- ", 0);
+                                                DisplayMessage("log", strCellToPutData, 2);
+
+                                                // Sometimes when the download fails, it will still keep the old broken files.
+                                                // We want to make sure those broken files are removed, otherwise we will think that the movie has a trailer when it really doesn't
+                                                CleanUpBadTrailerFiles(movieDirectory, cleanTitle);
                                             }
                                             else
                                             {
@@ -6350,18 +11818,20 @@ namespace SheetsQuickstart
 
                                                 string strCellToPutData = "Movies!" + ColumnNumToLetter(Convert.ToInt16(sheetVariables["Movie Has Trailer"])) + rowNum;
 
-                                                if (WriteSingleCellToSheet("X", strCellToPutData))
+                                                batchRequest.Data.Add(new ValueRange
                                                 {
-                                                    DisplayMessage("success", "Successfully recorded in the Google sheet that ", 0);
-                                                    DisplayMessage("info", cleanTitle, 0);
-                                                    DisplayMessage("success", " now has a trailer at- ", 0);
-                                                    DisplayMessage("log", strCellToPutData, 2);
-                                                }
-                                                else
-                                                {
-                                                    DisplayMessage("error", "An error occured while trying to record in the Google sheet that the following movie has a trailer: ", 0);
-                                                    DisplayMessage("warning", cleanTitle);
-                                                }
+                                                    Range = strCellToPutData,
+                                                    MajorDimension = "ROWS",
+                                                    Values = new List<IList<object>> { new List<object> { "X" } }
+                                                });
+
+                                                DisplayMessage("success", "Successfully recorded in the Google sheet that ", 0);
+                                                DisplayMessage("info", cleanTitle, 0);
+                                                DisplayMessage("success", " now has a trailer at- ", 0);
+                                                DisplayMessage("log", strCellToPutData, 2);
+
+                                                // Now go and verify yt-dlp didn't save an awful name i.e. 1 Mile To You (2017)-trailer.f137.mp4
+                                                SanitizeTrailerFilename(movieDirectory, cleanTitle);
                                             }
                                         }
                                     }
@@ -6374,18 +11844,17 @@ namespace SheetsQuickstart
 
                                         string strCellToPutData = "Movies!" + ColumnNumToLetter(Convert.ToInt16(sheetVariables["Movie Has Trailer"])) + rowNum;
 
-                                        if (WriteSingleCellToSheet("X", strCellToPutData))
+                                        batchRequest.Data.Add(new ValueRange
                                         {
-                                            DisplayMessage("success", "Successfully recorded in the Google sheet that ", 0);
-                                            DisplayMessage("info", cleanTitle, 0);
-                                            DisplayMessage("success", " already has a trailer at- ", 0);
-                                            DisplayMessage("log", strCellToPutData, 2);
-                                        }
-                                        else
-                                        {
-                                            DisplayMessage("error", "An error occured while trying to record in the Google sheet that the following movie has a trailer: ", 0);
-                                            DisplayMessage("warning", cleanTitle);
-                                        }
+                                            Range = strCellToPutData,
+                                            MajorDimension = "ROWS",
+                                            Values = new List<IList<object>> { new List<object> { "X" } }
+                                        });
+
+                                        DisplayMessage("success", "Successfully recorded in the Google sheet that ", 0);
+                                        DisplayMessage("info", cleanTitle, 0);
+                                        DisplayMessage("success", " already has a trailer at- ", 0);
+                                        DisplayMessage("log", strCellToPutData, 2);
                                     }
                                 }
                                 else
@@ -6404,7 +11873,16 @@ namespace SheetsQuickstart
                         errorDownloadingTrailerCount++;
                     }
                 }
+
+                if (batchRequest.Data.Count > 25)
+                {
+                    var BatchUpdateValuesResponse = BulkWriteToSheet(batchRequest);
+                    batchRequest.Data.Clear();
+                }
             } // End foreach
+
+            var BatchUpdateValuesResponse2 = BulkWriteToSheet(batchRequest);
+
             Type("-----SUMMARY-----", 0, 0, 1);
             Type("Trailers downloaded: " + movieTrailerDownloadedCount, 0, 0, 1, "Green");
             Type("Movies already had a trailer: " + movieAlreadyHasATrailerCount, 0, 0, 1, "Yellow");
@@ -6413,15 +11891,147 @@ namespace SheetsQuickstart
             Type("It looks like that's the end of it.", 0, 0, 2, "magenta");
         }
 
-        protected static BatchUpdateValuesRequest FillInActorMovieCredits(IList<IList<Object>> movieSheetData, Dictionary<string, int> sheetVariables, dynamic actorMovieCredits, ref IList<IList<Object>> skipMovieIdsData, string message, BatchUpdateValuesRequest batchRequest)
+        protected static void CleanUpBadTrailerFiles(string movieDirectory, string cleanTitle)
         {
+            // Look for any trailer-like files for this movie, including old spaced names.
+            var toDelete = FindTrailerFilesForTitle(movieDirectory, cleanTitle).ToList();
+
+            if (toDelete.Count == 0) return; // All good
+
+            foreach (var path in toDelete)
+            {
+                try
+                {
+                    File.Delete(path);
+                }
+                catch (Exception ex)
+                {
+                    Type($"[CLEANUP] Failed to delete '{path}': {ex.Message}");
+                }
+            }
+        }
+
+        protected static void SanitizeTrailerFilename(string movieDirectory, string cleanTitle)
+        {
+            var candidates = FindTrailerFilesForTitle(movieDirectory, cleanTitle)
+                .Where(IsTrailerVideoFile)
+                .ToList();
+
+            if (candidates.Count == 0) return; // nothing to fix
+
+            var correctFiles = candidates
+                .Where(p => IsExpectedTrailerFileName(p, cleanTitle))
+                .ToList();
+
+            if (correctFiles.Count > 0)
+            {
+                var extraCandidates = candidates
+                    .Where(p => !correctFiles.Contains(p, StringComparer.OrdinalIgnoreCase))
+                    .ToList();
+
+                foreach (var path in extraCandidates)
+                {
+                    try
+                    {
+                        File.Delete(path);
+                        Type($"[SANITIZE] Deleted extra trailer-like file: {Path.GetFileName(path)}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Type($"[SANITIZE] Failed to delete extra trailer-like file '{Path.GetFileName(path)}': {ex.Message}");
+                    }
+                }
+
+                return; // a Plex-friendly trailer already exists
+            }
+
+            if (candidates.Count == 1)
+            {
+                string extension = Path.GetExtension(candidates[0]);
+                string expected = Path.Combine(movieDirectory, $"{cleanTitle}-trailer{extension}");
+
+                try
+                {
+                    File.Move(candidates[0], expected);
+                    Type($"[SANITIZE] Trailer renamed to: {Path.GetFileName(expected)}");
+                }
+                catch (Exception ex)
+                {
+                    Type($"[SANITIZE] Failed to sanitize trailer filename: {ex.Message}");
+                }
+            }
+            else if (candidates.Count > 1)
+            {
+                Type($"[SANITIZE] Multiple trailer-like files found; not renaming: {string.Join(", ", candidates.Select(Path.GetFileName))}");
+            }
+        }
+
+        private static IEnumerable<string> FindTrailerFilesForTitle(string movieDirectory, string cleanTitle)
+        {
+            if (string.IsNullOrWhiteSpace(movieDirectory) ||
+                string.IsNullOrWhiteSpace(cleanTitle) ||
+                !Directory.Exists(movieDirectory))
+            {
+                return Enumerable.Empty<string>();
+            }
+
+            Regex trailerRegex = BuildTrailerFileNameRegex(cleanTitle);
+
+            return Directory.EnumerateFiles(movieDirectory, "*.*", SearchOption.TopDirectoryOnly)
+                .Where(p => trailerRegex.IsMatch(Path.GetFileNameWithoutExtension(p)));
+        }
+
+        private static Regex BuildTrailerFileNameRegex(string cleanTitle)
+        {
+            string escapedTitle = Regex.Escape(cleanTitle.Trim());
+
+            return new Regex(
+                "^" + escapedTitle + @"\s*-\s*trailer(?:[\s._-]*[A-Za-z0-9]+)?$",
+                RegexOptions.IgnoreCase);
+        }
+
+        private static bool IsTrailerFileForTitle(string path, string cleanTitle)
+        {
+            if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(cleanTitle))
+                return false;
+
+            return BuildTrailerFileNameRegex(cleanTitle)
+                .IsMatch(Path.GetFileNameWithoutExtension(path));
+        }
+
+        private static bool IsExpectedTrailerFileName(string path, string cleanTitle)
+        {
+            string baseName = Path.GetFileNameWithoutExtension(path);
+            return string.Equals(baseName, cleanTitle + "-trailer", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsTrailerVideoFile(string path)
+        {
+            string extension = Path.GetExtension(path);
+
+            return extension.Equals(".mp4", StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(".mkv", StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(".m4v", StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(".avi", StringComparison.OrdinalIgnoreCase) ||
+                   extension.Equals(".webm", StringComparison.OrdinalIgnoreCase);
+        }
+
+        protected static Boolean FillInActorMovieCredits(IList<IList<Object>> movieSheetData, Dictionary<string, int> sheetVariables, dynamic actorMovieCredits, ref IList<IList<Object>> skipMovieIdsData, string message)
+        {
+            BatchUpdateValuesRequest batchRequest = new BatchUpdateValuesRequest
+            {
+                ValueInputOption = "USER_ENTERED",
+                Data = new List<ValueRange>() // Initialize the list
+            };
+
             BatchUpdateValuesRequest skipMovieIdsBatchRequest = new BatchUpdateValuesRequest
             {
                 ValueInputOption = "USER_ENTERED",
                 Data = new List<ValueRange>() // Initialize the list
             };
+
             bool movieFound = false;
-            bool movieIdAddedToGoogleSheet = false;
+            bool movieIdAddedToSkipColumn = false, movieAddedToMoviesSheet = false;
             int initialEmptyRowNum = -1;
             int skipMovieIdsDataEmptyRow = skipMovieIdsData.Count + 3;
 
@@ -6429,8 +12039,13 @@ namespace SheetsQuickstart
             foreach (dynamic movie in actorMovieCredits)
             {
                 string movieTitle = movie.original_title.ToString(),
-                        movieId = movie.id.ToString();
+                        movieId = movie.id.ToString(),
+                        releaseDate = movie.release_date.ToString();
                 bool continueToGetDetails = true;
+
+                string year = releaseDate.Length >= 4 ? releaseDate.Substring(0, 4) : "Unknown";
+
+                string fullMovieInfo = $"{movieTitle} ({year}) - {movieId}";
 
 
 
@@ -6438,11 +12053,48 @@ namespace SheetsQuickstart
                 {
                     DisplayMessage("default", message, 0);
                     DisplayMessage("info", "We will skip ", 0);
-                    DisplayMessage("data", movieTitle, 0);
+                    DisplayMessage("data", fullMovieInfo, 0);
                     DisplayMessage("info", " because it was found in the list of IDs to skip.");
+
                     continueToGetDetails = false;
                 }
-                
+
+                if (continueToGetDetails)
+                {
+                    if (movieTitle.Contains("WWE"))
+                    {
+                        DisplayMessage("default", message, 0);
+                        DisplayMessage("info", "We will skip ", 0);
+                        DisplayMessage("data", fullMovieInfo, 0);
+                        DisplayMessage("info", " because it has been identified as WWE.");
+                        continueToGetDetails = false;
+                    }
+                }
+
+                if (continueToGetDetails)
+                {
+                    if (movieTitle.Contains("WWF"))
+                    {
+                        DisplayMessage("default", message, 0);
+                        DisplayMessage("info", "We will skip ", 0);
+                        DisplayMessage("data", fullMovieInfo, 0);
+                        DisplayMessage("info", " because it has been identified as WWF.");
+                        continueToGetDetails = false;
+                    }
+                }
+
+                if (continueToGetDetails)
+                {
+                    if (movieTitle.ToLower().Contains("wrestlemania"))
+                    {
+                        DisplayMessage("default", message, 0);
+                        DisplayMessage("info", "We will skip ", 0);
+                        DisplayMessage("data", fullMovieInfo, 0);
+                        DisplayMessage("info", " because it has been identified as wrestlemania.");
+                        continueToGetDetails = false;
+                    }
+                }
+
                 if (continueToGetDetails)
                 {
                     foreach (var genre in movie.genre_ids)
@@ -6451,7 +12103,7 @@ namespace SheetsQuickstart
                         {
                             DisplayMessage("default", message, 0);
                             DisplayMessage("info", "We will skip ", 0);
-                            DisplayMessage("data", movieTitle, 0);
+                            DisplayMessage("data", fullMovieInfo, 0);
                             DisplayMessage("info", " because it has been identified as a documentary.");
                             continueToGetDetails = false;
 
@@ -6464,7 +12116,7 @@ namespace SheetsQuickstart
                             });
 
                             skipMovieIdsDataEmptyRow++;
-                            movieIdAddedToGoogleSheet = true;
+                            movieIdAddedToSkipColumn = true;
                         }
                     }
                 }
@@ -6476,7 +12128,7 @@ namespace SheetsQuickstart
                         movieFound = false;
                         DisplayMessage("default", message, 0);
                         DisplayMessage("warning", "Searching Movie sheet for ", 0);
-                        DisplayMessage("info", movieTitle);
+                        DisplayMessage("info", fullMovieInfo);
                         // Loop through each row of the Movie sheet to check if the ID is in there.
                         foreach (var row in movieSheetData)
                         {
@@ -6504,6 +12156,21 @@ namespace SheetsQuickstart
                         // If the movie was not found, movieFound should still be false, so now let's add it to the sheet.
                         if (!movieFound)
                         {
+                            int movieSheetRowNum = initialEmptyRowNum - 3;
+
+                            // Verify that the initialEmptyRowNum is actually an empty row.
+                            // For now, I am just going to have the app error and break if it tries to write to a row that isn't empty,
+                            // But someday I'd like it to dynamically see that it isn't an empty row and automatically go find the next one.
+                            if (movieSheetData[movieSheetRowNum].Count > 70)
+                            {
+                                DisplayMessage("warning", "We caught the app trying to write to a row that isn't empty");
+                                DisplayMessage("default", "Row ", 0);
+                                DisplayMessage("info", initialEmptyRowNum.ToString(), 0);
+                                DisplayMessage("default", " is not empty");
+                                DisplayMessage("error", "We will exit the app right now. Please make sure your Google Sheet is sorted");
+                                throw new InvalidOperationException();
+                            }
+
                             dynamic movieDetails = TmdbApi.MoviesGetDetailsByTmdbId(movie.id.ToString());
                             if (!movieDetails.Equals(""))
                             {
@@ -6513,7 +12180,7 @@ namespace SheetsQuickstart
                                     {
                                         DisplayMessage("default", message, 0);
                                         DisplayMessage("info", "We will skip ", 0);
-                                        DisplayMessage("data", movieTitle, 0);
+                                        DisplayMessage("data", fullMovieInfo, 0);
                                         DisplayMessage("info", " because the original language is not English.");
 
                                         string strCellToPutData = "Autopopulate Actors!D" + skipMovieIdsDataEmptyRow;
@@ -6525,56 +12192,64 @@ namespace SheetsQuickstart
                                         });
 
                                         skipMovieIdsDataEmptyRow++;
-                                        movieIdAddedToGoogleSheet = true;
+                                        movieIdAddedToSkipColumn = true;
                                     }
                                     else if (movieDetails.status.ToString() == "Rumored")
                                     {
                                         DisplayMessage("default", message, 0);
                                         DisplayMessage("info", "We will skip ", 0);
-                                        DisplayMessage("data", movieTitle, 0);
+                                        DisplayMessage("data", fullMovieInfo, 0);
                                         DisplayMessage("info", " because the status of the movie is rumored.");
                                     }
                                     else if (movieDetails.status.ToString() == "Planned")
                                     {
                                         DisplayMessage("default", message, 0);
                                         DisplayMessage("info", "We will skip ", 0);
-                                        DisplayMessage("data", movieTitle, 0);
+                                        DisplayMessage("data", fullMovieInfo, 0);
                                         DisplayMessage("info", " because the status of the movie is planned.");
                                     }
                                     else if (movieDetails.status.ToString() == "Canceled")
                                     {
                                         DisplayMessage("default", message, 0);
                                         DisplayMessage("info", "We will skip ", 0);
-                                        DisplayMessage("data", movieTitle, 0);
+                                        DisplayMessage("data", fullMovieInfo, 0);
                                         DisplayMessage("info", " because the status of the movie was canceled.");
                                     }
                                     else if (movieDetails.status.ToString() == "In Production")
                                     {
                                         DisplayMessage("default", message, 0);
                                         DisplayMessage("info", "We will skip ", 0);
-                                        DisplayMessage("data", movieTitle, 0);
+                                        DisplayMessage("data", fullMovieInfo, 0);
                                         DisplayMessage("info", " because the status of the movie is in production.");
                                     }
                                     else if (movieDetails.status.ToString() == "Post Production")
                                     {
                                         DisplayMessage("default", message, 0);
                                         DisplayMessage("info", "We will skip ", 0);
-                                        DisplayMessage("data", movieTitle, 0);
+                                        DisplayMessage("data", fullMovieInfo, 0);
                                         DisplayMessage("info", " because the status of the movie is in post-production.");
+                                    }
+                                    else if (movieDetails.release_date.ToString() == "")
+                                    {
+                                        DisplayMessage("default", message, 0);
+                                        DisplayMessage("info", "We will skip ", 0);
+                                        DisplayMessage("data", fullMovieInfo, 0);
+                                        DisplayMessage("info", " because there is no release date.");
                                     }
                                     else
                                     {
-                                        string movieYear = "";
-                                        try
+                                        string runTime = movieDetails.runtime.ToString("D3");
+                                        string strCellToPutData = "Movies!" + ColumnNumToLetter(Convert.ToInt16(sheetVariables["Runtime"])) + initialEmptyRowNum;
+
+                                        batchRequest.Data.Add(new ValueRange
                                         {
-                                            movieYear = " (" + movieDetails.release_date.ToString().Substring(0, 4) + ")";
-                                        }
-                                        catch (Exception)
-                                        {
-                                            // There is no release date so it will be blank.
-                                        }
-                                        string title = movieDetails.original_title.ToString() + movieYear;
-                                        string strCellToPutData = "Movies!" + ColumnNumToLetter(Convert.ToInt16(sheetVariables["IMDB Title"])) + initialEmptyRowNum;
+                                            Range = strCellToPutData,
+                                            MajorDimension = "ROWS",
+                                            Values = new List<IList<object>> { new List<object> { runTime } }
+                                        });
+
+                                        string title = movieDetails.original_title.ToString() + $" ({year})";
+                                        strCellToPutData = "Movies!" + ColumnNumToLetter(Convert.ToInt16(sheetVariables["IMDB Title"])) + initialEmptyRowNum;
 
                                         batchRequest.Data.Add(new ValueRange
                                         {
@@ -6617,6 +12292,7 @@ namespace SheetsQuickstart
                                             Values = new List<IList<object>> { new List<object> { tmdbId } }
                                         });
                                         initialEmptyRowNum = initialEmptyRowNum + 1;
+                                        movieAddedToMoviesSheet = true;
                                     }
                                 }
                                 else
@@ -6636,73 +12312,72 @@ namespace SheetsQuickstart
                 }
             }
 
-            if (movieIdAddedToGoogleSheet)
+            if (movieIdAddedToSkipColumn)
             {
+                DisplayMessage("default", message, 0);
+                DisplayMessage("info", "New movie IDs added to skip column - Going to add now");
+
                 // Refresh skipMovieIdsData
-               var BatchUpdateValuesResponse = BulkWriteToSheet(skipMovieIdsBatchRequest);
+                var BatchUpdateValuesResponse = BulkWriteToSheet(skipMovieIdsBatchRequest);
                 skipMovieIdsData = CallGetData(new Dictionary<string, int> { { "Skip", -1 } }, SKIP_ACTORS_ID_TITLE_RANGE, SKIP_ACTORS_ID_DATA_RANGE, "Refreshing skip movie IDs...");
             }
 
-            return batchRequest;
+            if (movieAddedToMoviesSheet)
+            {
+                DisplayMessage("default", message, 0);
+                DisplayMessage("info", "New movies found to add to the Movies sheet - Going to add now");
+
+                var BatchUpdateValuesResponse = BulkWriteToSheet(batchRequest);
+
+                return true;
+            }
+
+            return false;
         }
 
         protected static string GetVideoResolution(string video)
         {
             string calculatedResolution = "";
-            int width = 0, height = 0;
             try
             {
                 var ffProbe = new NReco.VideoInfo.FFProbe();
                 var videoInfo = ffProbe.GetMediaInfo(Path.Combine(video));
 
-                width = videoInfo.Streams[0].Width == -1 ? videoInfo.Streams[1].Width : videoInfo.Streams[0].Width;
-                height = videoInfo.Streams[0].Height == -1 ? videoInfo.Streams[1].Height : videoInfo.Streams[0].Height;
-
-                calculatedResolution = FindResolution(width * height);
+                var videoStream = videoInfo.Streams.FirstOrDefault(s => s.CodecType == "video");
+                if (videoStream != null && videoStream.Height > 0 && videoStream.Width > 0)
+                {
+                    calculatedResolution = FindResolution(videoStream.Width, videoStream.Height);
+                }
+                else
+                {
+                    Type("No video stream found for: " + video, 0, 0, 1, "Red");
+                }
             }
             catch (Exception e)
             {
                 Type("Something went wrong using ffProbe for: " + video, 0, 0, 1, "Red");
-                Type("Possible issue is the video is 0 bytes", 0, 0, 2, "DarkRed");
-            }
-
-            if (calculatedResolution == "N/A")
-            {
-                Type("FindResolution() did not have a case for " + width * height, 0, 0, 1, "red");
             }
             return calculatedResolution;
         }
 
-        protected static string FindResolution(int total)
+        protected static string FindResolution(int width, int height)
         {
-            string resolution = "N/A";
-            if (total <= 102240)
-            {
-                resolution = "240p";
-            } else if (total <= 230400)
-            {
-                resolution = "360p";
-            } else if (total <= 409920)
-            {
-                resolution = "480p";
-            }
-            else if (total <= 921600)
-            {
-                resolution = "720p";
-            }
-            else if (total <= 2073600)
-            {
-                resolution = "1080p";
-            }
-            else if (total <= 3686400)
-            {
-                resolution = "1440p";
-            }
-            else if (total <= 8294400)
-            {
-                resolution = "2160p";
-            }
-            return resolution;
+            DisplayMessage("info", $"{width}x{height}");
+
+            if (width == 1280) return "720p";
+            if (width == 1920) return "1080p";
+
+            // Otherwise Emby sticks to the height thresholds without rounding up:
+            //if (height < 360) return "240p";
+            //if (height <= 360) return "360p";
+            if (height == 576) return "576p";
+            if (height < 720) return "480p";
+            if (height < 1080) return "720p";
+            if (height < 1440) return "1080p";
+            if (height < 2160) return "1440p";
+            if (height < 4320) return "2160p";
+            if (height >= 4320) return "4320p";
+            return "N/A";
         }
 
         protected static void ConvertVideo(IList<IList<Object>> data, Dictionary<string, int> sheetVariables, string presetChoice)
@@ -6714,7 +12389,7 @@ namespace SheetsQuickstart
                 intNoTitleCount = 0,
                 intConvertedFilesCount = 0,
                 intSkippedFilesCount = 0;
-            
+
             foreach (var row in data)
             {
                 if (row[Convert.ToInt16(sheetVariables["Show"])].ToString() != "") // If it's an empty row then this cell should be empty.
@@ -6861,7 +12536,7 @@ namespace SheetsQuickstart
                 string[] subdirectoryEntries = Directory.GetDirectories(directory);
 
                 // Check that there are some subdirectories.
-                if(subdirectoryEntries.Length > 0)
+                if (subdirectoryEntries.Length > 0)
                 {
                     // Since this is a valid directory then change our flag.
                     keepAskingForDirectory = false;
@@ -6890,14 +12565,14 @@ namespace SheetsQuickstart
                     // Let the user know that there are no subdirectories in the folder.
                     Type("There are no folders to rename in this directory.", 0, 0, 1);
                 }
-                
+
             } while (keepAskingForDirectory);
 
             // Now finish and let the user know that's it.
             Type("It looks like that's it.", 3, 100, 2);
 
         } // End RenameFolders()
-        
+
         /// <summary>
         /// Takes the original folder name and figures out what to rename it to.
         /// </summary>
@@ -6933,10 +12608,10 @@ namespace SheetsQuickstart
                     // Tell the user what happened.
                     Type(folderName + " was split.", 0, 0, 1);
                 }
-                
+
             }
             // Else if there is more than one dash, I don't want to rename it.
-            else if(intDashCount > 1)
+            else if (intDashCount > 1)
             {
                 // Tell the user it wasn't split because of too many dashes.
                 // Just rename those manually.
@@ -6964,10 +12639,10 @@ namespace SheetsQuickstart
             int count = 0;
 
             // Loop through each character in the string.
-            foreach(char c in value)
+            foreach (char c in value)
             {
                 // If the character in the string is equal to the requested character then add one to our count.
-                if(c == ch)
+                if (c == ch)
                 {
                     count++;
                 }
@@ -7005,7 +12680,7 @@ namespace SheetsQuickstart
                 DateTime startTime = DateTime.Now;
                 Type("Start Time: ", 0, 0, 0, "Blue");
                 Type(startTime.ToString("MM/dd/yyyy, h:mm:ss tt"), 0, 0, 1, "Green");
-                
+
                 proc.Start();
                 // Get the output into a string
                 string result = proc.StandardOutput.ReadToEnd();
@@ -7054,7 +12729,7 @@ namespace SheetsQuickstart
                         hoursRemaining = (daysRemaining > 0 ? ((int)timeLeftInMinutes - (daysRemaining * 1440)) / 60 : (int)timeLeftInMinutes / 60);
                         ETR += hoursRemaining.ToString() + (hoursRemaining == 1 ? " hour, " : " hours, ");
                     }
-                        
+
                     minutesRemaining = (int)timeLeftInMinutes % 60;
 
                     ETR += minutesRemaining.ToString() + (minutesRemaining == 1 ? " minute remaining" : " minutes remaining");
@@ -7241,6 +12916,55 @@ namespace SheetsQuickstart
         //    }
         //} // End GetDataToConvertEpisodes()
 
+        public static void verifySrtFileNames(string[] srtLocations)
+        {
+            foreach (var location in srtLocations)
+            {
+                string[] fileEntries = Directory.GetFiles(location);
+                string[] subdirectoryEntries = Directory.GetDirectories(location);
+
+                if (fileEntries.Length > 0)
+                {
+                    fileEntriesCount += fileEntries.Count();
+                    foreach (string fileName in fileEntries)
+                    {
+                        if (IsSrtFile(fileName))
+                        {
+                            srtEntriesCount++;
+
+                            if (!HasEngSrtFlag(fileName))
+                            {
+                                missingEngCount++;
+                                missingEng.Add(fileName);
+                            }
+                        }
+
+                    }
+                }
+
+                // Recurse into subdirectories of this directory.
+                foreach (string subdirectory in subdirectoryEntries)
+                {
+                    // Don't go into the bonus features folders.
+                    if (!subdirectory.Contains(@"\Behind The Scenes") &&
+                        !subdirectory.Contains(@"\Scenes") &&
+                        !subdirectory.Contains(@"\Deleted Scenes") &&
+                        !subdirectory.Contains(@"\Shorts") &&
+                        !subdirectory.Contains(@"\Featurettes") &&
+                        !subdirectory.Contains(@"\Trailers") &&
+                        !subdirectory.Contains(@"\Interviews") &&
+                        !subdirectory.Contains(@"\Broken apart") &&
+                        !subdirectory.Contains(@"\Other") &&
+                        !subdirectory.Contains(@"\_Collections") &&
+                        !subdirectory.Contains(@"\.sync"))
+                    {
+                        string[] directory = { subdirectory };
+                        verifySrtFileNames(directory);
+                    }
+                }
+            }
+        }
+
         protected static void CountFiles()
         {
             var missingDirectories = new List<List<string>>();
@@ -7252,8 +12976,6 @@ namespace SheetsQuickstart
 
                 var directory = AskForDirectory();
 
-                //Type("Enter your directory", 0, 0, 1);
-                //var directory = Console.ReadLine();
                 string[] fileEntries = Directory.GetFiles(directory);
                 string[] subdirectoryEntries = Directory.GetDirectories(directory);
                 Type("The chosen directory contains " + subdirectoryEntries.Length + " sub folders and " + fileEntries.Length + " files.", 0, 100, 1);
@@ -7340,6 +13062,14 @@ namespace SheetsQuickstart
                         Type(res480List.Count().ToString() + directoryPlural + "a 480p video.", 0, 0, 1, "Magenta");
                         missingDirectories.Add(res480List);
                         missingDirectoriesList.Add(i, " 480p videos");
+                        i++;
+                    }
+                    if (res576List.Count() > 0)
+                    {
+                        directoryPlural = res576List.Count() == 1 ? " directory has " : " directories have ";
+                        Type(res576List.Count().ToString() + directoryPlural + "a 576p video.", 0, 0, 1, "Magenta");
+                        missingDirectories.Add(res576List);
+                        missingDirectoriesList.Add(i, " 576p videos");
                         i++;
                     }
                     if (res720List.Count() > 0)
@@ -7445,11 +13175,12 @@ namespace SheetsQuickstart
                 if (i == 0)
                 {
                     fontColor = "Green";
-                } else if (i == 1)
+                }
+                else if (i == 1)
                 {
                     fontColor = "Yellow";
                 }
-                 else if (i == 2)
+                else if (i == 2)
                 {
                     fontColor = "Red";
                 }
@@ -7471,7 +13202,7 @@ namespace SheetsQuickstart
                     if (chosenDirectory == "0")
                     {
                         keepAskingForDirectory = false;
-                    } 
+                    }
                     else if (File.Exists(chosenDirectory))
                     {
                         Type("No, I need the path to a folder location, not a file.", 0, 0, 1, "Red");
@@ -7510,9 +13241,9 @@ namespace SheetsQuickstart
 
                         Directory.CreateDirectory(Path.GetDirectoryName(o));
 
-                        ArrayList inputArrayList = new ArrayList{i};
+                        ArrayList inputArrayList = new ArrayList { i };
                         long sizeOfInputFile = SizeOfFiles(inputArrayList);
-                        ArrayList outputArrayList = new ArrayList{o};
+                        ArrayList outputArrayList = new ArrayList { o };
                         // Since the output file MAY not exist yet we wait to get the size of it.
                         long sizeOfOutputFile = 0;
 
@@ -7606,11 +13337,12 @@ namespace SheetsQuickstart
             //Console.WriteLine("iFile: " + iFile.ToString("N"));
             //Console.WriteLine("oFile: " + oFile.ToString("N"));
             //Console.WriteLine("difference: " + difference.ToString("N"));
-            if(difference >= 0)
+            if (difference >= 0)
             {
                 Type("Conversion savings: ", 0, 0, 0, "Blue");
                 Type(FormatSize(difference, true) + " of " + FormatSize(iFile, true) + " -" + FormatPercentage(difference, iFile) + "%", 0, 0, 1, "Yellow");
-            } else
+            }
+            else
             {
                 Type("Conversion loss: ", 0, 0, 0, "Red");
                 Type(FormatSize(difference * -1, true) + " more than " + FormatSize(iFile, true) + " +" + FormatPercentage(difference * -1, oFile) + "%", 0, 0, 1, "Yellow");
@@ -7651,7 +13383,8 @@ namespace SheetsQuickstart
                         videoFile.Save();
                         Type("Comment added to: ", 0, 0, 0, "Yellow");
                         Type(Path.GetFileName(myFile.ToString()), 0, 0, 1, "Green");
-                    } else
+                    }
+                    else
                     {
                         var oldComment = videoFile.Tag.Comment;
                         var newComment = oldComment + "\n" + comment;
@@ -7667,7 +13400,7 @@ namespace SheetsQuickstart
             {
                 Type("Something went wrong | " + e.Message, 0, 0, 1, "Red");
             }
-            
+
         }
 
         protected static void RemoveMetadata(ArrayList videoFiles)
@@ -7678,53 +13411,97 @@ namespace SheetsQuickstart
             resultVariables.Add(performersRemovedCount, 0);
             resultVariables.Add(titlesRemovedCount, 0);
             resultVariables.Add(commentsRemovedCount, 0);
-                
-                foreach (var myFile in videoFiles)
-                {
-                    try
-                    {
-                        if (myFile.ToString().ToUpper().Contains(".MP4") || myFile.ToString().ToUpper().Contains(".M4V"))
-                        {
-                            bool saveFile = false;
-                            using (TagLib.File videoFile = TagLib.File.Create(myFile.ToString()))
-                            {
-                                if (videoFile.Tag.Performers.Length > 0)
-                                {
-                                    videoFile.Tag.Performers = null;
-                                    resultVariables[performersRemovedCount] += 1;
-                                    saveFile = true;
-                                }
-                                if (videoFile.Tag.Title != null)
-                                {
-                                    videoFile.Tag.Title = null;
-                                    resultVariables[titlesRemovedCount] += 1;
-                                    saveFile = true;
-                                }
-                                if (videoFile.Tag.Comment != null)
-                                {
-                                    videoFile.Tag.Comment = null;
-                                    resultVariables[commentsRemovedCount] += 1;
-                                    saveFile = true;
-                                }
 
-                                if (saveFile)
-                                {
-                                    videoFile.Save();
-                                }
+            foreach (var myFile in videoFiles)
+            {
+                try
+                {
+                    string ext = Path.GetExtension(myFile.ToString()).ToUpperInvariant();
+
+                    if (ext == ".MP4" || ext == ".M4V")
+                    {
+                        Type($"Processing MP4/M4V file: {myFile}", 0, 0, 1, "Yellow");
+                        bool saveFile = false;
+
+                        using (TagLib.File videoFile = TagLib.File.Create(myFile.ToString()))
+                        {
+                            // Performers
+                            if (videoFile.Tag.Performers != null && videoFile.Tag.Performers.Length > 0)
+                            {
+                                videoFile.Tag.Performers = Array.Empty<string>();
+                                resultVariables[performersRemovedCount] += 1;
+                                saveFile = true;
+                                Type("Removed performers metadata", 0, 0, 1, "Green");
+                            }
+
+                            // Title
+                            if (!string.IsNullOrEmpty(videoFile.Tag.Title))
+                            {
+                                videoFile.Tag.Title = string.Empty;
+                                resultVariables[titlesRemovedCount] += 1;
+                                saveFile = true;
+                                Type("Removed title metadata", 0, 0, 1, "Green");
+                            }
+
+                            // Comment
+                            if (!string.IsNullOrEmpty(videoFile.Tag.Comment))
+                            {
+                                videoFile.Tag.Comment = string.Empty;
+                                resultVariables[commentsRemovedCount] += 1;
+                                saveFile = true;
+                                Type("Removed comment metadata", 0, 0, 1, "Green");
+                            }
+
+                            if (saveFile)
+                            {
+                                videoFile.Save();
+                                Type($"Done removing metadata from {myFile}", 0, 0, 1, "Cyan");
+                            }
+                            else
+                            {
+                                Type($"No metadata to remove from {myFile}", 0, 0, 1, "Gray");
                             }
                         }
                     }
-                    catch (Exception e)
+                    else if (ext.Equals(".MKV", StringComparison.OrdinalIgnoreCase))
                     {
-                        Type("Unable to remove the metadata on a file", 0, 0, 1, "Red");
-                        Type(myFile.ToString(), 0, 0, 1, "Blue");
-                        Type(e.Message, 0, 0, 1, "DarkRed");
+                        Type($"MKV file detected, now going to remove metadata from: {myFile}", 0, 0, 1, "Yellow");
+
+                        bool ok = MkvToolNix.ClearTitleAndComments(
+                            myFile.ToString(),
+                            msg => Type(msg, 0, 0, 1, "Gray"),
+                            msg => Type(msg, 0, 0, 1, "Red")
+                        // , @"C:\Path\To\mkvpropedit.exe" // optional override
+                        );
+
+                        if (ok)
+                        {
+                            Type($"Done cleaning metadata from {myFile}", 0, 0, 1, "Cyan");
+                            resultVariables[performersRemovedCount] += 1;
+                            resultVariables[titlesRemovedCount] += 1;
+                            resultVariables[commentsRemovedCount] += 1;
+                        }
+                        else
+                        {
+                            Type($"mkvpropedit failed for {myFile}", 0, 0, 1, "Red");
+                        }
                     }
-
+                    else
+                    {
+                        Type($"Skipping unsupported file type: {myFile}", 0, 0, 1, "Gray");
+                    }
                 }
-                Type("DONE", 0, 0, 1, "Green");
+                catch (Exception e)
+                {
+                    Type("Unable to remove the metadata on a file", 0, 0, 1, "Red");
+                    Type(myFile.ToString(), 0, 0, 1, "Blue");
+                    Type(e.Message, 0, 0, 1, "DarkRed");
+                }
+            }
 
-                DisplayResults(resultVariables);
+            Type("DONE", 0, 0, 1, "Green");
+
+            DisplayResults(resultVariables);
 
         } // End RemoveMetadata()
 
@@ -7819,7 +13596,8 @@ namespace SheetsQuickstart
                 if (person == "0")
                 {
                     break;
-                } else if (person == "1" || person == "2")
+                }
+                else if (person == "1" || person == "2")
                 {
                     Type("What hard drive am I copying to? (Just the hard drive letter)", 0, 0, 1, "Yellow");
 
@@ -7829,7 +13607,8 @@ namespace SheetsQuickstart
                     {
                         DisplayMessage("error", "We won't be able to copy any more movies to this hard drive because available space is below 10%");
                         break;
-                    } else
+                    }
+                    else
                     {
                         Console.WriteLine("We will copy to hard drive " + chosenDestination);
                     }
@@ -7841,13 +13620,15 @@ namespace SheetsQuickstart
                     if (chosenDestination != sourceHardDriveLetter)
                     {
                         Console.WriteLine("We will copy from the " + sourceHardDriveLetter + " drive.");
-                    } else
+                    }
+                    else
                     {
                         DisplayMessage("error", "I'm sorry the source hard drive can't be the same as the destination hard drive.");
                         repeatProcess = true;
                     }
 
-                } else
+                }
+                else
                 {
                     DisplayMessage("error", "I'm sorry, I don't recognise " + person + " yet. Could you add them to my DB before continuing?");
                     repeatProcess = true;
@@ -7977,7 +13758,7 @@ namespace SheetsQuickstart
                                                         DisplayMessage("success", "DONE");
                                                         intFileCopiedCount++;
                                                     }
-                                                    
+
 
                                                 }
                                                 //if (!movieFoundAtSource)
@@ -8018,7 +13799,7 @@ namespace SheetsQuickstart
                         }
                     } // End foreach
                 } // End if
-                
+
 
                 Console.WriteLine();
 
@@ -8213,7 +13994,7 @@ namespace SheetsQuickstart
                     Type("Movies already at destination: " + intFileAlreadyThereCount, 0, 0, 1, "Blue");
                 }
             } while (false);
-             
+
         } // End DeleteMovieFiles()
 
         protected static void ClearDirectories()
@@ -8226,6 +14007,7 @@ namespace SheetsQuickstart
             res240List.Clear();
             res360List.Clear();
             res480List.Clear();
+            res576List.Clear();
             res720List.Clear();
             res1080List.Clear();
             res1440List.Clear();
@@ -8233,7 +14015,7 @@ namespace SheetsQuickstart
             resNAList.Clear();
         }
 
-        // Process all files in the directory passed in, recurse on any directories 
+        // Process all files in the directory passed in, recurse on any directories
         // that are found, and process the files they contain.
         public static void ProcessDirectory(string targetDirectory)
         {
@@ -8255,6 +14037,7 @@ namespace SheetsQuickstart
                     res240Count = 0,
                     res360Count = 0,
                     res480Count = 0,
+                    res576Count = 0,
                     res720Count = 0,
                     res1080Count = 0,
                     res1440Count = 0,
@@ -8276,6 +14059,8 @@ namespace SheetsQuickstart
                             res360Count++;
                         else if (videoResolution == "480p")
                             res480Count++;
+                        else if (videoResolution == "576p")
+                            res576Count++;
                         else if (videoResolution == "720p")
                             res720Count++;
                         else if (videoResolution == "1080p")
@@ -8288,7 +14073,28 @@ namespace SheetsQuickstart
                             resNACount++;
                     }
                     else if (fileName.ToUpper().Contains(".MKV"))
+                    {
                         mkvCount++;
+                        string videoResolution = GetVideoResolution(fileName);
+                        if (videoResolution == "240p")
+                            res240Count++;
+                        else if (videoResolution == "360p")
+                            res360Count++;
+                        else if (videoResolution == "480p")
+                            res480Count++;
+                        else if (videoResolution == "576p")
+                            res576Count++;
+                        else if (videoResolution == "720p")
+                            res720Count++;
+                        else if (videoResolution == "1080p")
+                            res1080Count++;
+                        else if (videoResolution == "1440p")
+                            res1440Count++;
+                        else if (videoResolution == "2160p")
+                            res2160Count++;
+                        else if (videoResolution == "N/A")
+                            resNACount++;
+                    }
                     else if (fileName.ToUpper().Contains(".M4V"))
                         m4vCount++;
                     else if (fileName.ToUpper().Contains(".AVI"))
@@ -8335,6 +14141,10 @@ namespace SheetsQuickstart
                 {
                     res480List.Add(targetDirectory);
                 }
+                if (res576Count > 0)
+                {
+                    res576List.Add(targetDirectory);
+                }
                 if (res720Count > 0)
                 {
                     res720List.Add(targetDirectory);
@@ -8376,7 +14186,6 @@ namespace SheetsQuickstart
                     !subdirectory.Contains(@"\Trailers") &&
                     !subdirectory.Contains(@"\Interviews") &&
                     !subdirectory.Contains(@"\Broken apart") &&
-                    !subdirectory.Contains(@"\Other") &&
                     !subdirectory.Contains(@"\_Collections") &&
                     !subdirectory.Contains(@"\.sync"))
                 {
@@ -8550,7 +14359,7 @@ namespace SheetsQuickstart
             }
         }
 
-        // Process all files in the directory passed in, recurse on any directories 
+        // Process all files in the directory passed in, recurse on any directories
         // that are found, and move files up one.
         public static void RecurseSameMovieFolder(string topLevelDirectory, string targetDirectory)
         {
@@ -8575,7 +14384,7 @@ namespace SheetsQuickstart
                 RecurseSameMovieFolder(topLevelDirectory, subdirectory);
             }
         }
-        // Process all files in the directory passed in, recurse on any directories 
+        // Process all files in the directory passed in, recurse on any directories
         // that are found, and process the files they contain.
         public static void ProcessCopyDirectory(string targetDirectory)
         {
@@ -8706,6 +14515,7 @@ namespace SheetsQuickstart
                     Type(message, speed, pause, numLines);
                     break;
                 default:
+                    Type(message, speed, pause, numLines, "white");
                     break;
             }
         } // End DisplayMessage()
@@ -8978,7 +14788,8 @@ namespace SheetsQuickstart
                         Countdown(30);
                         tryAgain = true;
                         DisplayMessage("info", "Let's try again.");
-                    } else
+                    }
+                    else
                     {
                         DisplayMessage("error", "An error has occurred.");
                         DisplayMessage("harderror", m);
@@ -8989,6 +14800,50 @@ namespace SheetsQuickstart
             return true;
 
         } // End WriteSingleCellToSheet
+
+        public class MoviesSheetBatchContext
+        {
+            public SheetsService Service { get; set; }
+            public IList<object> Headers { get; set; }
+            public IList<IList<object>> DataRows { get; set; }
+            public Dictionary<string, int> ColIndex { get; set; }
+            public List<ValueRange> PendingUpdates { get; set; } = new List<ValueRange>();
+        }
+
+        private static MoviesSheetBatchContext BuildMoviesSheetBatchContext()
+        {
+            var service = GetSheetsService();
+
+            // 1) Get header row
+            var headerResponse = service.Spreadsheets.Values.Get(SPREADSHEET_ID, MOVIES_TITLE_RANGE).Execute();
+            var headers = headerResponse.Values?.FirstOrDefault();
+            if (headers == null)
+                throw new Exception("Movies header row not found in Google Sheet.");
+
+            // 2) Get data rows
+            var dataResponse = service.Spreadsheets.Values.Get(SPREADSHEET_ID, MOVIES_DATA_RANGE).Execute();
+            var data = dataResponse.Values ?? new List<IList<object>>();
+
+            // 3) Map header -> index
+            var colIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < headers.Count; i++)
+            {
+                var key = headers[i]?.ToString()?.Trim();
+                if (!string.IsNullOrWhiteSpace(key) && !colIndex.ContainsKey(key))
+                    colIndex[key] = i;
+            }
+
+            if (!colIndex.ContainsKey(CLEAN_TITLE))
+                throw new Exception($"Could not find '{CLEAN_TITLE}' column in Movies sheet.");
+
+            return new MoviesSheetBatchContext
+            {
+                Service = service,
+                Headers = headers,
+                DataRows = data,
+                ColIndex = colIndex
+            };
+        }
 
         protected static BatchUpdateValuesResponse BulkWriteToSheet(BatchUpdateValuesRequest batchRequest)
         {
@@ -9025,6 +14880,143 @@ namespace SheetsQuickstart
         {
             Value = value;
             CellNumber = cellNumber;
+        }
+    }
+
+    public static class MkvToolNix
+    {
+        // Common install locations; adjust if needed
+        private static readonly string[] DefaultLocations = new[]
+        {
+        @"C:\Program Files\MKVToolNix\mkvpropedit.exe",
+        @"C:\Program Files (x86)\MKVToolNix\mkvpropedit.exe"
+    };
+
+        /// <summary>
+        /// Clears the MKV container title and all tags (comments/extra metadata) using mkvpropedit.
+        /// Returns true on success, false on failure.
+        /// </summary>
+        public static bool ClearTitleAndComments(
+            string mkvFile,
+            Action<string> logInfo,
+            Action<string> logError,
+            string mkvpropeditPath = null)
+        {
+            if (string.IsNullOrWhiteSpace(mkvFile) || !File.Exists(mkvFile))
+            {
+                SafeLog(logError, "[mkvpropedit] File not found: " + mkvFile);
+                return false;
+            }
+
+            string exe = ResolveMkvPropEdit(mkvpropeditPath);
+            if (string.IsNullOrEmpty(exe))
+            {
+                SafeLog(logError, "[mkvpropedit] Could not find mkvpropedit.exe. Install MKVToolNix or add it to PATH.");
+                return false;
+            }
+
+            // One-shot: clear title and remove all tags
+            string args = "\"" + mkvFile + "\" --edit info --set \"title=\" --tags all:";
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = exe,
+                Arguments = args,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            SafeLog(logInfo, "[mkvpropedit] Clearing title and comments: " + mkvFile);
+
+            try
+            {
+                using (var proc = new Process { StartInfo = psi, EnableRaisingEvents = false })
+                {
+                    proc.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) SafeLog(logInfo, "[mkvpropedit] " + e.Data); };
+                    proc.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) SafeLog(logError, "[mkvpropedit] " + e.Data); };
+
+                    if (!proc.Start())
+                    {
+                        SafeLog(logError, "[mkvpropedit] Failed to start process.");
+                        return false;
+                    }
+
+                    proc.BeginOutputReadLine();
+                    proc.BeginErrorReadLine();
+                    proc.WaitForExit();
+
+                    if (proc.ExitCode == 0)
+                    {
+                        SafeLog(logInfo, "[mkvpropedit] OK: " + mkvFile);
+                        return true;
+                    }
+
+                    SafeLog(logError, "[mkvpropedit] Exit code " + proc.ExitCode + " for file: " + mkvFile);
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                SafeLog(logError, "[mkvpropedit] Exception for " + mkvFile + ": " + ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>Overload with simple Console logging.</summary>
+        public static bool ClearTitleAndComments(string mkvFile, string mkvpropeditPath = null)
+        {
+            return ClearTitleAndComments(
+                mkvFile,
+                Console.WriteLine,
+                Console.Error.WriteLine,
+                mkvpropeditPath
+            );
+        }
+
+        private static string ResolveMkvPropEdit(string explicitPath)
+        {
+            // Explicit path
+            if (!string.IsNullOrWhiteSpace(explicitPath) && File.Exists(explicitPath))
+                return explicitPath;
+
+            // Defaults
+            for (int i = 0; i < DefaultLocations.Length; i++)
+                if (File.Exists(DefaultLocations[i])) return DefaultLocations[i];
+
+            // PATH: use `where mkvpropedit`
+            try
+            {
+                var wherePsi = new ProcessStartInfo
+                {
+                    FileName = "where",
+                    Arguments = "mkvpropedit",
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using (var p = Process.Start(wherePsi))
+                {
+                    if (p != null)
+                    {
+                        string line = p.StandardOutput.ReadLine();
+                        if (!string.IsNullOrWhiteSpace(line) && File.Exists(line.Trim()))
+                            return line.Trim();
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return null;
+        }
+
+        private static void SafeLog(Action<string> logger, string message)
+        {
+            try { if (logger != null) logger(message); } catch { /* swallow */ }
         }
     }
 } // End namespace

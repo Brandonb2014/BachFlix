@@ -71,6 +71,7 @@
     <Reference Include="System.Management, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
       <HintPath>..\packages\System.Management.7.0.2\lib\netstandard2.0\System.Management.dll</HintPath>
     </Reference>
+    <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.Web" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
@@ -84,13 +85,32 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="BachFlixNfo.cs" />
+    <Compile Include="Features\AudioCensorRunner.cs" />
+    <Compile Include="Features\AudioCompatibilityConverter.cs" />
+    <Compile Include="Features\AudioMuteFilterBuilder.cs" />
+    <Compile Include="Features\ExternalToolResolver.cs" />
+    <Compile Include="Features\FfmpegMuxService.cs" />
+    <Compile Include="Features\MovieFilenameSheetScanner.cs" />
+    <Compile Include="Features\PlexMetadataSheetUpdater.cs" />
+    <Compile Include="Features\PlexRatingKeySheetPopulator.cs" />
+    <Compile Include="Features\ProfileRequestProcessor.cs" />
+    <Compile Include="Features\ProfanityDictionary.cs" />
+    <Compile Include="Features\VideoHealthCheck.cs" />
+    <Compile Include="Features\VideoHealthSheetRunner.cs" />
+    <Compile Include="Features\SubtitleScanner.cs" />
+    <Compile Include="Features\WhisperAlignmentService.cs" />
+    <Compile Include="Helpers\BachFlixLog.cs" />
+    <Compile Include="Helpers\LocalEnvironment.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Subtitles\SrtScoringEngine.cs" />
+    <Compile Include="Subtitles\SubtitleScoreRunner.cs" />
     <Compile Include="TmdbApi.cs" />
     <Compile Include="TvdbApi.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
+    <None Include="BachFlixNfo.local.env.example" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>

@@ -1,0 +1,13 @@
+# Local secrets
+.env
+*.local.env
+*.bak
+
+# Visual Studio local state
+.vs/
+*.suo
+*.user
+
+# Build outputs
+[Bb]in/
+[Oo]bj/
