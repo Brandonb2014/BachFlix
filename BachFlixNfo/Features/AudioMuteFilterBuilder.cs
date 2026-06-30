@@ -7,8 +7,8 @@ namespace BachFlixNfo.Features
 {
     public sealed class AudioMuteFilterBuilder
     {
-        private static readonly TimeSpan WordPreRoll = TimeSpan.FromMilliseconds(120);
-        private static readonly TimeSpan WordPostRoll = TimeSpan.FromMilliseconds(160);
+        public static readonly TimeSpan DefaultPaddingBefore = TimeSpan.FromMilliseconds(120);
+        public static readonly TimeSpan DefaultPaddingAfter = TimeSpan.FromMilliseconds(160);
         private static readonly TimeSpan MinimumWordMuteDuration = TimeSpan.FromMilliseconds(350);
 
         public string BuildMuteFilter(IEnumerable<AudioMuteSegment> segments)
@@ -28,23 +28,25 @@ namespace BachFlixNfo.Features
             return string.Join(",", usableSegments.Select(BuildVolumeFilter));
         }
 
-        public List<AudioMuteSegment> CreateSegments(WhisperAlignmentResult alignmentResult)
+        public List<AudioMuteSegment> CreateSegments(IEnumerable<TranscriptProfanityHit> approvedHits)
         {
             var segments = new List<AudioMuteSegment>();
 
-            if (alignmentResult == null || alignmentResult.AlignedWords == null)
+            if (approvedHits == null)
                 return segments;
 
-            foreach (AlignedProfanityWord word in alignmentResult.AlignedWords)
+            foreach (TranscriptProfanityHit hit in approvedHits)
             {
-                if (word == null || word.End <= word.Start)
+                if (hit == null || !hit.Approved || hit.End <= hit.Start)
                     continue;
 
-                TimeSpan start = word.Start - WordPreRoll;
+                TimeSpan before = hit.PaddingBefore < TimeSpan.Zero ? TimeSpan.Zero : hit.PaddingBefore;
+                TimeSpan after = hit.PaddingAfter < TimeSpan.Zero ? TimeSpan.Zero : hit.PaddingAfter;
+                TimeSpan start = hit.Start - before;
                 if (start < TimeSpan.Zero)
                     start = TimeSpan.Zero;
 
-                TimeSpan end = word.End + WordPostRoll;
+                TimeSpan end = hit.End + after;
                 ExpandToMinimumDuration(ref start, ref end, MinimumWordMuteDuration);
 
                 if (end <= start)
@@ -54,8 +56,7 @@ namespace BachFlixNfo.Features
                 {
                     Start = start,
                     End = end,
-                    SourceOccurrence = word.SourceOccurrence,
-                    IsFallback = false
+                    SourceHit = hit
                 });
             }
 
@@ -96,7 +97,6 @@ namespace BachFlixNfo.Features
     {
         public TimeSpan Start { get; set; }
         public TimeSpan End { get; set; }
-        public ProfanityOccurrence SourceOccurrence { get; set; }
-        public bool IsFallback { get; set; }
+        public TranscriptProfanityHit SourceHit { get; set; }
     }
 }

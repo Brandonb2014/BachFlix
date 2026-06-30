@@ -1,4 +1,4 @@
-﻿using BachFlixNfo.Features;
+using BachFlixNfo.Features;
 using BachFlixNfo.Subtitles;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Services;
@@ -871,7 +871,7 @@ namespace SheetsQuickstart
             audioCompatibilityConverterChoice = "19a";
             Type(audioCompatibilityConverterChoice + "- Add AC3 5.1 compatibility audio from English EAC3 tracks.", 0, 0, 1, CONVERT_FILES_COLOR);
             audioCensorRunnerChoice = "19c";
-            Type(audioCensorRunnerChoice + "- Scan SRT profanity for future clean audio muting.", 0, 0, 1, CONVERT_FILES_COLOR);
+            Type(audioCensorRunnerChoice + "- Create WhisperX-based clean audio/subtitles from MKV.", 0, 0, 1, CONVERT_FILES_COLOR);
 
             const string TMDB_CALL_COLOR = "Green";
             Type("");
@@ -2188,7 +2188,7 @@ namespace SheetsQuickstart
                 else if (choice.Equals(audioCensorRunnerChoice))
                 {
                     Console.WriteLine();
-                    DisplayMessage("info", "Audio censor subtitle scan. Let's go!", 2);
+                    DisplayMessage("info", "Audio censor WhisperX workflow. Let's go!", 2);
 
                     AudioCensorRunner.RunInteractive(
                         (t, msg, ind) => DisplayMessage(t, msg, ind));

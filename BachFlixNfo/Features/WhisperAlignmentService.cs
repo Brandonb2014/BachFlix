@@ -1,28 +1,27 @@
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 
 namespace BachFlixNfo.Features
 {
-    public interface IWhisperAlignmentService
+    public interface IWordTranscriptionService
     {
-        ExternalToolResolution ResolveWhisperX(
+        ExternalToolResolution ResolveTranscriptionTool(
             string explicitPath,
             Action<string, string, int> log,
             IList<string> commandLog);
 
-        WhisperAlignmentResult AlignWords(WhisperAlignmentRequest request);
+        WordTranscriptionResult Transcribe(WordTranscriptionRequest request);
     }
 
-    public sealed class WhisperAlignmentService : IWhisperAlignmentService
+    public sealed class WhisperXTranscriptionService : IWordTranscriptionService
     {
         private const string WorkDirectoryPrefix = "BachFlixNfo-AudioCensor-";
-        private static readonly TimeSpan PrimaryCueTolerance = TimeSpan.FromSeconds(3);
-        private static readonly TimeSpan ExpandedCueTolerance = TimeSpan.FromSeconds(8);
 
-        public ExternalToolResolution ResolveWhisperX(
+        public ExternalToolResolution ResolveTranscriptionTool(
             string explicitPath,
             Action<string, string, int> log,
             IList<string> commandLog)
@@ -37,24 +36,19 @@ namespace BachFlixNfo.Features
             return ExternalToolResolver.Resolve(path, "whisperx", log, commandLog);
         }
 
-        public WhisperAlignmentResult AlignWords(WhisperAlignmentRequest request)
+        public WordTranscriptionResult Transcribe(WordTranscriptionRequest request)
         {
             if (request == null)
                 throw new ArgumentNullException(nameof(request));
 
-            if (string.IsNullOrWhiteSpace(request.MkvPath) || !File.Exists(request.MkvPath))
-                throw new FileNotFoundException("Input MKV was not found.", request.MkvPath ?? "");
+            if (string.IsNullOrWhiteSpace(request.MediaPath) || !File.Exists(request.MediaPath))
+                throw new FileNotFoundException("Input media file was not found.", request.MediaPath ?? "");
 
             if (string.IsNullOrWhiteSpace(request.FfmpegPath))
-                throw new ArgumentException("FFmpeg path is required for WhisperX alignment audio extraction.", nameof(request));
+                throw new ArgumentException("FFmpeg path is required for WhisperX audio extraction.", nameof(request));
 
-            if (string.IsNullOrWhiteSpace(request.WhisperXPath))
-                throw new ArgumentException("WhisperX path is required for alignment.", nameof(request));
-
-            IReadOnlyList<ProfanityOccurrence> occurrences = request.OccurrencesToAlign ?? new List<ProfanityOccurrence>();
-            var alignmentResult = new WhisperAlignmentResult();
-            if (occurrences.Count == 0)
-                return alignmentResult;
+            if (string.IsNullOrWhiteSpace(request.TranscriptionToolPath))
+                throw new ArgumentException("WhisperX path is required for transcription.", nameof(request));
 
             bool createdWorkDirectory = string.IsNullOrWhiteSpace(request.WorkDirectory);
             string workDirectory = createdWorkDirectory
@@ -62,43 +56,69 @@ namespace BachFlixNfo.Features
                 : request.WorkDirectory;
 
             Directory.CreateDirectory(workDirectory);
-            alignmentResult.WorkDirectory = workDirectory;
 
-            string safeBaseName = Path.GetFileNameWithoutExtension(request.MkvPath);
-            if (string.IsNullOrWhiteSpace(safeBaseName))
-                safeBaseName = "audio";
+            string mediaBaseName = Path.GetFileNameWithoutExtension(request.MediaPath);
+            if (string.IsNullOrWhiteSpace(mediaBaseName))
+                mediaBaseName = "audio";
 
-            string audioPath = Path.Combine(workDirectory, safeBaseName + ".audio-" + Math.Max(0, request.AudioTrackIndex) + ".wav");
-            string outputDirectory = Path.Combine(workDirectory, "whisperx");
+            int audioTrackIndex = request.AudioTrackIndex < 0 ? 0 : request.AudioTrackIndex;
+            string audioPath = Path.Combine(workDirectory, mediaBaseName + ".audio-" + audioTrackIndex + ".wav");
+            string outputDirectory = Path.Combine(workDirectory, "whisperx-" + audioTrackIndex);
             Directory.CreateDirectory(outputDirectory);
+
+            var result = new WordTranscriptionResult
+            {
+                EngineName = "WhisperX",
+                SourceAudioTrackIndex = audioTrackIndex,
+                WorkDirectory = workDirectory
+            };
 
             try
             {
-                ExtractAudioTrack(request, audioPath);
+                ExtractAudioTrack(request, audioPath, audioTrackIndex);
                 string jsonPath = RunWhisperX(request, audioPath, outputDirectory);
-                alignmentResult.TranscriptJsonPath = jsonPath;
 
-                List<TimedTranscriptWord> transcriptWords = LoadTranscriptWords(jsonPath);
-                alignmentResult.TranscriptWordCount = transcriptWords.Count;
+                string finalJsonPath = GetOutputPath(
+                    request.OutputJsonPath,
+                    request.MediaPath,
+                    audioTrackIndex,
+                    ".whisperx.json",
+                    request.UseCanonicalOutputNames);
 
-                List<AlignedProfanityWord> alignedWords = MatchOccurrencesToTranscriptWords(occurrences, transcriptWords, alignmentResult.UnalignedOccurrences);
-                alignmentResult.AlignedWords.AddRange(alignedWords);
+                string finalSrtPath = GetOutputPath(
+                    request.OutputSrtPath,
+                    request.MediaPath,
+                    audioTrackIndex,
+                    ".whisperx.srt",
+                    request.UseCanonicalOutputNames);
 
-                return alignmentResult;
+                CopyFile(jsonPath, finalJsonPath);
+                string whisperSrtPath = LocateWhisperOutput(outputDirectory, audioPath, ".srt");
+                if (!string.IsNullOrWhiteSpace(whisperSrtPath) && File.Exists(whisperSrtPath))
+                    CopyFile(whisperSrtPath, finalSrtPath);
+                else
+                    WriteSrtFromJsonSegments(finalJsonPath, finalSrtPath);
+
+                result.TranscriptJsonPath = finalJsonPath;
+                result.TranscriptSrtPath = finalSrtPath;
+                result.Words.AddRange(LoadTranscriptWords(finalJsonPath));
+                result.Segments.AddRange(LoadTranscriptSegments(finalJsonPath));
+                result.TranscriptWordCount = result.Words.Count;
+
+                return result;
             }
             finally
             {
                 if (!request.KeepWorkFiles && createdWorkDirectory)
-                    TryDeleteDirectory(workDirectory, alignmentResult);
+                    TryDeleteDirectory(workDirectory, result);
             }
         }
 
-        private static void ExtractAudioTrack(WhisperAlignmentRequest request, string audioPath)
+        private static void ExtractAudioTrack(WordTranscriptionRequest request, string audioPath, int audioTrackIndex)
         {
-            int audioTrackIndex = request.AudioTrackIndex < 0 ? 0 : request.AudioTrackIndex;
             string args =
                 "-hide_banner -nostdin -y -v error " +
-                "-i " + Quote(request.MkvPath) + " " +
+                "-i " + Quote(request.MediaPath) + " " +
                 "-map 0:a:" + audioTrackIndex + " " +
                 "-vn -sn -dn -ac 1 -ar 16000 -f wav " +
                 Quote(audioPath);
@@ -108,7 +128,7 @@ namespace BachFlixNfo.Features
                 throw new InvalidOperationException("FFmpeg audio extraction failed with exit code " + result.ExitCode + ": " + FirstUsefulLine(result.StandardError, result.StandardOutput));
         }
 
-        private static string RunWhisperX(WhisperAlignmentRequest request, string audioPath, string outputDirectory)
+        private static string RunWhisperX(WordTranscriptionRequest request, string audioPath, string outputDirectory)
         {
             var args = new List<string>();
             args.Add(Quote(audioPath));
@@ -119,27 +139,51 @@ namespace BachFlixNfo.Features
             args.Add("--output_dir");
             args.Add(Quote(outputDirectory));
             args.Add("--output_format");
-            args.Add("json");
+            args.Add("all");
 
-            ExternalCommandResult result = ExternalToolResolver.RunProcess(request.WhisperXPath, string.Join(" ", args), request.Log, request.CommandLog);
+            ExternalCommandResult result = ExternalToolResolver.RunProcess(request.TranscriptionToolPath, string.Join(" ", args), request.Log, request.CommandLog);
             if (result.ExitCode != 0)
-                throw new InvalidOperationException("WhisperX alignment failed with exit code " + result.ExitCode + ": " + FirstUsefulLine(result.StandardError, result.StandardOutput));
+                throw new InvalidOperationException("WhisperX transcription failed with exit code " + result.ExitCode + ": " + FirstUsefulLine(result.StandardError, result.StandardOutput));
 
-            string expectedJson = Path.Combine(outputDirectory, Path.GetFileNameWithoutExtension(audioPath) + ".json");
-            if (File.Exists(expectedJson))
-                return expectedJson;
+            string jsonPath = LocateWhisperOutput(outputDirectory, audioPath, ".json");
+            if (!string.IsNullOrWhiteSpace(jsonPath) && File.Exists(jsonPath))
+                return jsonPath;
 
-            string latestJson = Directory.GetFiles(outputDirectory, "*.json", SearchOption.TopDirectoryOnly)
-                .OrderByDescending(File.GetLastWriteTimeUtc)
-                .FirstOrDefault();
-
-            if (!string.IsNullOrWhiteSpace(latestJson) && File.Exists(latestJson))
-                return latestJson;
-
-            throw new FileNotFoundException("WhisperX completed, but no JSON transcript was written.", expectedJson);
+            throw new FileNotFoundException("WhisperX completed, but no JSON transcript was written.", Path.Combine(outputDirectory, Path.GetFileNameWithoutExtension(audioPath) + ".json"));
         }
 
-        private static List<TimedTranscriptWord> LoadTranscriptWords(string jsonPath)
+        private static string LocateWhisperOutput(string outputDirectory, string audioPath, string extension)
+        {
+            string expected = Path.Combine(outputDirectory, Path.GetFileNameWithoutExtension(audioPath) + extension);
+            if (File.Exists(expected))
+                return expected;
+
+            return Directory.GetFiles(outputDirectory, "*" + extension, SearchOption.TopDirectoryOnly)
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .FirstOrDefault();
+        }
+
+        private static string GetOutputPath(string explicitPath, string mediaPath, int audioTrackIndex, string suffix, bool canonical)
+        {
+            if (!string.IsNullOrWhiteSpace(explicitPath))
+                return explicitPath;
+
+            string directory = Path.GetDirectoryName(mediaPath) ?? "";
+            string baseName = Path.GetFileNameWithoutExtension(mediaPath);
+            string trackSuffix = canonical ? "" : ".audio-" + audioTrackIndex;
+            return Path.Combine(directory, baseName + trackSuffix + suffix);
+        }
+
+        private static void CopyFile(string source, string destination)
+        {
+            string directory = Path.GetDirectoryName(destination);
+            if (!string.IsNullOrWhiteSpace(directory))
+                Directory.CreateDirectory(directory);
+
+            File.Copy(source, destination, true);
+        }
+
+        public static List<TimedTranscriptWord> LoadTranscriptWords(string jsonPath)
         {
             JObject root = JObject.Parse(File.ReadAllText(jsonPath));
             var words = new List<TimedTranscriptWord>();
@@ -166,6 +210,32 @@ namespace BachFlixNfo.Features
                 .ToList();
         }
 
+        public static List<TranscriptSegment> LoadTranscriptSegments(string jsonPath)
+        {
+            JObject root = JObject.Parse(File.ReadAllText(jsonPath));
+            var segments = new List<TranscriptSegment>();
+            JArray jsonSegments = root["segments"] as JArray;
+            if (jsonSegments == null)
+                return segments;
+
+            foreach (JToken segment in jsonSegments)
+            {
+                TimeSpan? start = ReadTimeSpanSeconds(segment, "start");
+                TimeSpan? end = ReadTimeSpanSeconds(segment, "end");
+                if (!start.HasValue || !end.HasValue || end.Value <= start.Value)
+                    continue;
+
+                segments.Add(new TranscriptSegment
+                {
+                    Start = start.Value,
+                    End = end.Value,
+                    Text = ReadString(segment, "text").Trim()
+                });
+            }
+
+            return segments;
+        }
+
         private static void AddWords(List<TimedTranscriptWord> words, JArray tokens)
         {
             foreach (JToken token in tokens)
@@ -187,112 +257,31 @@ namespace BachFlixNfo.Features
             }
         }
 
-        private static List<AlignedProfanityWord> MatchOccurrencesToTranscriptWords(
-            IReadOnlyList<ProfanityOccurrence> occurrences,
-            List<TimedTranscriptWord> transcriptWords,
-            List<ProfanityOccurrence> unalignedOccurrences)
+        private static void WriteSrtFromJsonSegments(string jsonPath, string srtPath)
         {
-            var aligned = new List<AlignedProfanityWord>();
-            var usedTranscriptIndexes = new HashSet<int>();
+            List<TranscriptSegment> segments = LoadTranscriptSegments(jsonPath);
+            var lines = new List<string>();
 
-            foreach (ProfanityOccurrence occurrence in occurrences.OrderBy(o => o.ReviewNumber))
+            int sequence = 1;
+            foreach (TranscriptSegment segment in segments)
             {
-                TimedWordMatch match = FindBestMatch(occurrence, transcriptWords, usedTranscriptIndexes, PrimaryCueTolerance);
-                if (match == null)
-                    match = FindBestMatch(occurrence, transcriptWords, usedTranscriptIndexes, ExpandedCueTolerance);
-
-                if (match == null)
-                {
-                    if (unalignedOccurrences != null)
-                        unalignedOccurrences.Add(occurrence);
+                if (string.IsNullOrWhiteSpace(segment.Text))
                     continue;
-                }
 
-                usedTranscriptIndexes.Add(match.Index);
-                aligned.Add(new AlignedProfanityWord
-                {
-                    SourceOccurrence = occurrence,
-                    Word = match.Word.Word,
-                    Start = match.Word.Start,
-                    End = match.Word.End
-                });
+                lines.Add(sequence.ToString(CultureInfo.InvariantCulture));
+                lines.Add(FormatSrtTime(segment.Start) + " --> " + FormatSrtTime(segment.End));
+                lines.Add(segment.Text.Trim());
+                lines.Add("");
+                sequence++;
             }
 
-            return aligned;
-        }
-
-        private static TimedWordMatch FindBestMatch(
-            ProfanityOccurrence occurrence,
-            List<TimedTranscriptWord> transcriptWords,
-            HashSet<int> usedTranscriptIndexes,
-            TimeSpan cueTolerance)
-        {
-            if (occurrence == null || occurrence.Cue == null || transcriptWords == null)
-                return null;
-
-            string occurrenceWord = ProfanityDictionary.NormalizeToken(occurrence.Word);
-            string dictionaryTerm = ProfanityDictionary.NormalizeToken(occurrence.DictionaryTerm);
-            if (string.IsNullOrWhiteSpace(occurrenceWord) && string.IsNullOrWhiteSpace(dictionaryTerm))
-                return null;
-
-            TimeSpan earliest = occurrence.Cue.Start - cueTolerance;
-            if (earliest < TimeSpan.Zero)
-                earliest = TimeSpan.Zero;
-
-            TimeSpan latest = occurrence.Cue.End + cueTolerance;
-            TimeSpan expectedTime = EstimateOccurrenceTime(occurrence);
-            var matches = new List<TimedWordMatch>();
-
-            for (int i = 0; i < transcriptWords.Count; i++)
-            {
-                if (usedTranscriptIndexes.Contains(i))
-                    continue;
-
-                TimedTranscriptWord word = transcriptWords[i];
-                if (!WordMatches(word.NormalizedWord, occurrenceWord, dictionaryTerm))
-                    continue;
-
-                if (word.End < earliest || word.Start > latest)
-                    continue;
-
-                TimeSpan wordMidpoint = TimeSpan.FromTicks((word.Start.Ticks + word.End.Ticks) / 2);
-                matches.Add(new TimedWordMatch
-                {
-                    Index = i,
-                    Word = word,
-                    DistanceFromExpectedTime = Math.Abs((wordMidpoint - expectedTime).TotalMilliseconds)
-                });
-            }
-
-            return matches
-                .OrderBy(m => m.DistanceFromExpectedTime)
-                .ThenBy(m => m.Word.Start)
-                .FirstOrDefault();
-        }
-
-        private static TimeSpan EstimateOccurrenceTime(ProfanityOccurrence occurrence)
-        {
-            TimeSpan cueDuration = occurrence.Cue.End - occurrence.Cue.Start;
-            if (cueDuration <= TimeSpan.Zero || string.IsNullOrWhiteSpace(occurrence.Cue.Text))
-                return TimeSpan.FromTicks((occurrence.Cue.Start.Ticks + occurrence.Cue.End.Ticks) / 2);
-
-            double fraction = Math.Max(0, Math.Min(1, occurrence.CharacterIndex / (double)Math.Max(1, occurrence.Cue.Text.Length)));
-            return occurrence.Cue.Start + TimeSpan.FromTicks((long)(cueDuration.Ticks * fraction));
-        }
-
-        private static bool WordMatches(string normalizedTranscriptWord, string occurrenceWord, string dictionaryTerm)
-        {
-            if (string.IsNullOrWhiteSpace(normalizedTranscriptWord))
-                return false;
-
-            return (!string.IsNullOrWhiteSpace(occurrenceWord) && normalizedTranscriptWord == occurrenceWord) ||
-                   (!string.IsNullOrWhiteSpace(dictionaryTerm) && normalizedTranscriptWord == dictionaryTerm);
+            File.WriteAllLines(srtPath, lines);
         }
 
         private static TimeSpan? ReadTimeSpanSeconds(JToken token, string name)
         {
             double seconds;
-            if (!double.TryParse(ReadString(token, name), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out seconds))
+            if (!double.TryParse(ReadString(token, name), NumberStyles.Float, CultureInfo.InvariantCulture, out seconds))
                 return null;
 
             if (seconds < 0)
@@ -340,7 +329,18 @@ namespace BachFlixNfo.Features
             return "(no output)";
         }
 
-        private static void TryDeleteDirectory(string path, WhisperAlignmentResult result)
+        private static string FormatSrtTime(TimeSpan value)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0:D2}:{1:D2}:{2:D2},{3:D3}",
+                (int)value.TotalHours,
+                value.Minutes,
+                value.Seconds,
+                value.Milliseconds);
+        }
+
+        private static void TryDeleteDirectory(string path, WordTranscriptionResult result)
         {
             try
             {
@@ -361,38 +361,18 @@ namespace BachFlixNfo.Features
                     result.TemporaryFilesCleaned = false;
             }
         }
-
-        private sealed class TimedTranscriptWord
-        {
-            public string Word { get; set; }
-            public string NormalizedWord { get; set; }
-            public TimeSpan Start { get; set; }
-            public TimeSpan End { get; set; }
-
-            public TimedTranscriptWord()
-            {
-                Word = "";
-                NormalizedWord = "";
-            }
-        }
-
-        private sealed class TimedWordMatch
-        {
-            public int Index { get; set; }
-            public TimedTranscriptWord Word { get; set; }
-            public double DistanceFromExpectedTime { get; set; }
-        }
     }
 
-    public sealed class WhisperAlignmentRequest
+    public sealed class WordTranscriptionRequest
     {
-        public string MkvPath { get; set; }
-        public string SubtitlePath { get; set; }
+        public string MediaPath { get; set; }
         public int AudioTrackIndex { get; set; }
-        public IReadOnlyList<ProfanityOccurrence> OccurrencesToAlign { get; set; }
         public string FfmpegPath { get; set; }
-        public string WhisperXPath { get; set; }
+        public string TranscriptionToolPath { get; set; }
         public string WorkDirectory { get; set; }
+        public string OutputJsonPath { get; set; }
+        public string OutputSrtPath { get; set; }
+        public bool UseCanonicalOutputNames { get; set; }
         public string Model { get; set; }
         public string Device { get; set; }
         public string ComputeType { get; set; }
@@ -401,51 +381,68 @@ namespace BachFlixNfo.Features
         public Action<string, string, int> Log { get; set; }
         public IList<string> CommandLog { get; set; }
 
-        public WhisperAlignmentRequest()
+        public WordTranscriptionRequest()
         {
-            MkvPath = "";
-            SubtitlePath = "";
-            OccurrencesToAlign = new List<ProfanityOccurrence>();
+            MediaPath = "";
             FfmpegPath = "";
-            WhisperXPath = "";
+            TranscriptionToolPath = "";
             WorkDirectory = "";
+            OutputJsonPath = "";
+            OutputSrtPath = "";
             Model = "small";
             Device = "cpu";
             ComputeType = "int8";
             Language = "en";
-            KeepWorkFiles = false;
             CommandLog = new List<string>();
         }
     }
 
-    public sealed class WhisperAlignmentResult
+    public sealed class WordTranscriptionResult
     {
-        public List<AlignedProfanityWord> AlignedWords { get; private set; }
-        public List<ProfanityOccurrence> UnalignedOccurrences { get; private set; }
+        public string EngineName { get; set; }
+        public int SourceAudioTrackIndex { get; set; }
+        public List<TimedTranscriptWord> Words { get; private set; }
+        public List<TranscriptSegment> Segments { get; private set; }
         public int TranscriptWordCount { get; set; }
         public string WorkDirectory { get; set; }
         public string TranscriptJsonPath { get; set; }
+        public string TranscriptSrtPath { get; set; }
         public bool TemporaryFilesCleaned { get; set; }
 
-        public WhisperAlignmentResult()
+        public WordTranscriptionResult()
         {
-            AlignedWords = new List<AlignedProfanityWord>();
-            UnalignedOccurrences = new List<ProfanityOccurrence>();
+            EngineName = "";
+            Words = new List<TimedTranscriptWord>();
+            Segments = new List<TranscriptSegment>();
             WorkDirectory = "";
             TranscriptJsonPath = "";
+            TranscriptSrtPath = "";
         }
     }
 
-    public sealed class AlignedProfanityWord
+    public sealed class TimedTranscriptWord
     {
-        public ProfanityOccurrence SourceOccurrence { get; set; }
         public string Word { get; set; }
+        public string NormalizedWord { get; set; }
         public TimeSpan Start { get; set; }
         public TimeSpan End { get; set; }
 
-        public AlignedProfanityWord()
+        public TimedTranscriptWord()
         {
             Word = "";
+            NormalizedWord = "";
+        }
+    }
+
+    public sealed class TranscriptSegment
+    {
+        public TimeSpan Start { get; set; }
+        public TimeSpan End { get; set; }
+        public string Text { get; set; }
+
+        public TranscriptSegment()
+        {
+            Text = "";
         }
     }
 }

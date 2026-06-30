@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -86,6 +86,12 @@
   <ItemGroup>
     <Compile Include="BachFlixNfo.cs" />
     <Compile Include="Features\AudioCensorRunner.cs" />
+    <Compile Include="Features\CensoredSubtitleWriter.cs" />
+    <Compile Include="Features\SubtitleCensoringModels.cs" />
+    <Compile Include="Features\SubtitleComparisonService.cs" />
+    <Compile Include="Features\SubtitleProfanityService.cs" />
+    <Compile Include="Features\SubtitleSourceServices.cs" />
+    <Compile Include="Features\TranscriptProfanityServices.cs" />
     <Compile Include="Features\AudioCompatibilityConverter.cs" />
     <Compile Include="Features\AudioMuteFilterBuilder.cs" />
     <Compile Include="Features\ExternalToolResolver.cs" />
