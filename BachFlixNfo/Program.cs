@@ -365,7 +365,8 @@ namespace SheetsQuickstart
         static string APLICATION_NAME = "Google Sheets API .NET Quickstart";
         static readonly string SPREADSHEET_ID = "1LE9Tiz0TgcG60qeul_y9wC4j8qNLQlfKTLnAg5tgBr0";
 
-        private static readonly string YOUTUBE_API_KEY = "AIzaSyBomk4BPUovSEGFGVrJGZIABVzCA1tSNKU";
+        private const string YOUTUBE_API_KEY_ENV = "YOUTUBE_API_KEY";
+        private static string YoutubeApiKey => LocalEnvironment.GetRequired(YOUTUBE_API_KEY_ENV);
 
         // Match: "Movie Title (2010)"
         private static readonly Regex TitleYearRegex =
@@ -11392,7 +11393,7 @@ namespace SheetsQuickstart
         {
             var youtubeService = new YouTubeService(new BaseClientService.Initializer()
             {
-                ApiKey = YOUTUBE_API_KEY,
+                ApiKey = YoutubeApiKey,
                 ApplicationName = "MovieTrailerDownloader"
             });
 
@@ -11468,7 +11469,7 @@ namespace SheetsQuickstart
                                     Type("No trailer found. We will now go and get one.", 0, 0, 1, "Blue");
                                     var youtubeService = new YouTubeService(new BaseClientService.Initializer()
                                     {
-                                        ApiKey = YOUTUBE_API_KEY,
+                                        ApiKey = YoutubeApiKey,
                                         ApplicationName = "MovieTrailerDownloader"
                                     });
 
