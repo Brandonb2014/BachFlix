@@ -9,8 +9,8 @@ namespace BachFlixNfo.Features
     {
         public static void RunInteractive(Action<string, string, int> log)
         {
-            Write(log, "info", "=== AUDIO CENSOR PREP ===", 1);
-            Write(log, "warning", "This phase scans subtitles for profanity and prepares the review list. No MKV will be changed or created yet.", 2);
+            Write(log, "info", "=== AUDIO CENSOR DRY RUN ===", 1);
+            Write(log, "warning", "This phase scans subtitles, prepares mute windows, and prints the FFmpeg plan. No MKV will be changed or created yet.", 2);
 
             string mkvPath = PromptForExistingMkv(log);
             if (string.IsNullOrWhiteSpace(mkvPath))
@@ -25,8 +25,6 @@ namespace BachFlixNfo.Features
             if (string.IsNullOrWhiteSpace(dictionaryPath))
                 return;
 
-            int audioTrackIndex = PromptForAudioTrackIndex(log);
-
             var commandLog = new List<string>();
             AudioCensorScanSummary summary;
 
@@ -37,7 +35,7 @@ namespace BachFlixNfo.Features
                     MkvPath = mkvPath,
                     SubtitlePath = subtitlePath,
                     ProfanityDictionaryPath = dictionaryPath,
-                    AudioTrackIndex = audioTrackIndex,
+                    AudioTrackIndex = 0,
                     DetectExternalTools = true,
                     Log = log,
                     CommandLog = commandLog
@@ -50,7 +48,10 @@ namespace BachFlixNfo.Features
                 return;
             }
 
+            summary.AudioTrackIndex = PromptForAudioTrackIndex(log, summary.AudioTracks);
             summary.ApprovedOccurrences = ReviewOccurrences(summary.ScanResult.Occurrences, log);
+            summary.CensorPlan = BuildDryRunPlan(summary, commandLog, log);
+
             WriteSummary(summary, log);
             WriteLogFile(summary, commandLog, log);
         }
@@ -76,6 +77,7 @@ namespace BachFlixNfo.Features
             ExternalToolResolution ffmpeg = new ExternalToolResolution { ToolName = "ffmpeg", Found = false };
             ExternalToolResolution ffprobe = new ExternalToolResolution { ToolName = "ffprobe", Found = false };
             ExternalToolResolution whisperx = new ExternalToolResolution { ToolName = "whisperx", Found = false };
+            var audioTracks = new List<AudioTrackInfo>();
 
             if (options.DetectExternalTools)
             {
@@ -92,6 +94,20 @@ namespace BachFlixNfo.Features
 
                 if (!whisperx.Found)
                     Write(options.Log, "warning", whisperx.Message, 1);
+
+                if (ffprobe.Found)
+                {
+                    try
+                    {
+                        Write(options.Log, "info", "Reading audio tracks with FFprobe...", 1);
+                        audioTracks = muxService.ProbeAudioTracks(ffprobe.Path, options.MkvPath, options.Log, commandLog);
+                        Write(options.Log, "success", "Found " + audioTracks.Count + " audio track(s).", 1);
+                    }
+                    catch (Exception ex)
+                    {
+                        Write(options.Log, "warning", "Could not read audio tracks: " + ex.Message, 1);
+                    }
+                }
             }
 
             string subtitlePath = options.SubtitlePath;
@@ -120,6 +136,7 @@ namespace BachFlixNfo.Features
                 ProfanityDictionaryPath = options.ProfanityDictionaryPath,
                 DictionaryTermCount = dictionary.Count,
                 AudioTrackIndex = options.AudioTrackIndex < 0 ? 0 : options.AudioTrackIndex,
+                AudioTracks = audioTracks,
                 OutputMkvPath = muxService.BuildCleanOutputPath(options.MkvPath),
                 ScanResult = scanResult,
                 ApprovedOccurrences = new List<ProfanityOccurrence>(scanResult.Occurrences),
@@ -127,6 +144,129 @@ namespace BachFlixNfo.Features
                 Ffprobe = ffprobe,
                 WhisperX = whisperx
             };
+        }
+        private static AudioCensorPlan BuildDryRunPlan(
+            AudioCensorScanSummary summary,
+            IList<string> commandLog,
+            Action<string, string, int> log)
+        {
+            var plan = new AudioCensorPlan
+            {
+                InputMkvPath = summary.MkvPath,
+                OutputMkvPath = summary.OutputMkvPath,
+                AudioTrackIndex = summary.AudioTrackIndex
+            };
+
+            if (summary.ApprovedOccurrences == null || summary.ApprovedOccurrences.Count == 0)
+            {
+                plan.Message = "No approved profanity occurrences; no mute filter or FFmpeg command is needed.";
+                Write(log, "success", plan.Message, 2);
+                return plan;
+            }
+
+            var muteSegments = new List<AudioMuteSegment>();
+
+            if (summary.Ffmpeg != null && summary.Ffmpeg.Found && summary.WhisperX != null && summary.WhisperX.Found)
+            {
+                plan.AlignmentAttempted = true;
+                try
+                {
+                    Write(log, "info", "Running WhisperX alignment for approved profanity occurrences...", 1);
+                    var alignmentService = new WhisperAlignmentService();
+                    WhisperAlignmentResult alignmentResult = alignmentService.AlignWords(new WhisperAlignmentRequest
+                    {
+                        MkvPath = summary.MkvPath,
+                        SubtitlePath = summary.SubtitlePath,
+                        AudioTrackIndex = summary.AudioTrackIndex,
+                        OccurrencesToAlign = summary.ApprovedOccurrences,
+                        FfmpegPath = summary.Ffmpeg.Path,
+                        WhisperXPath = summary.WhisperX.Path,
+                        Model = GetEnvOrDefault("AUDIO_CENSOR_WHISPERX_MODEL", "small"),
+                        Device = GetEnvOrDefault("AUDIO_CENSOR_WHISPERX_DEVICE", "cpu"),
+                        ComputeType = GetEnvOrDefault("AUDIO_CENSOR_WHISPERX_COMPUTE_TYPE", "int8"),
+                        Language = GetEnvOrDefault("AUDIO_CENSOR_WHISPERX_LANGUAGE", "en"),
+                        KeepWorkFiles = GetBooleanEnv("AUDIO_CENSOR_KEEP_WORK_FILES"),
+                        Log = log,
+                        CommandLog = commandLog
+                    });
+
+                    plan.AlignmentResult = alignmentResult;
+                    plan.AlignmentSucceeded = alignmentResult.AlignedWords.Count > 0;
+                    plan.AlignmentMessage = "Aligned " + alignmentResult.AlignedWords.Count + " of " + summary.ApprovedOccurrences.Count + " approved occurrence(s).";
+                    Write(log, plan.AlignmentSucceeded ? "success" : "warning", plan.AlignmentMessage, 1);
+
+                    var builder = new AudioMuteFilterBuilder();
+                    muteSegments.AddRange(builder.CreateSegments(alignmentResult));
+
+                    if (alignmentResult.UnalignedOccurrences.Count > 0)
+                    {
+                        plan.FallbackSegmentsUsed = true;
+                        Write(log, "warning", "Using subtitle cue fallback for " + alignmentResult.UnalignedOccurrences.Count + " unaligned occurrence(s).", 1);
+                        muteSegments.AddRange(CreateSubtitleFallbackSegments(alignmentResult.UnalignedOccurrences));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    plan.AlignmentMessage = "WhisperX alignment failed: " + ex.Message;
+                    plan.FallbackSegmentsUsed = true;
+                    Write(log, "warning", plan.AlignmentMessage, 1);
+                    Write(log, "warning", "Using subtitle cue timing as the dry-run fallback.", 1);
+                    muteSegments.AddRange(CreateSubtitleFallbackSegments(summary.ApprovedOccurrences));
+                }
+            }
+            else
+            {
+                plan.FallbackSegmentsUsed = true;
+                plan.AlignmentMessage = "WhisperX alignment was skipped because FFmpeg or WhisperX was not available.";
+                Write(log, "warning", plan.AlignmentMessage, 1);
+                Write(log, "warning", "Using subtitle cue timing as the dry-run fallback.", 1);
+                muteSegments.AddRange(CreateSubtitleFallbackSegments(summary.ApprovedOccurrences));
+            }
+
+            plan.MuteSegments.AddRange(MergeSegments(muteSegments));
+            if (plan.MuteSegments.Count == 0)
+            {
+                plan.Message = "No valid mute segments were produced; no FFmpeg command was generated.";
+                Write(log, "warning", plan.Message, 2);
+                return plan;
+            }
+
+            var muteFilterBuilder = new AudioMuteFilterBuilder();
+            plan.AudioFilter = muteFilterBuilder.BuildMuteFilter(plan.MuteSegments);
+            if (string.IsNullOrWhiteSpace(plan.AudioFilter))
+            {
+                plan.Message = "Mute filter was empty; no FFmpeg command was generated.";
+                Write(log, "warning", plan.Message, 2);
+                return plan;
+            }
+
+            if (summary.Ffmpeg == null || !summary.Ffmpeg.Found)
+            {
+                plan.Message = "FFmpeg was not found, so the mute filter was built but no command line was generated.";
+                Write(log, "warning", plan.Message, 2);
+                return plan;
+            }
+
+            var muxService = new FfmpegMuxService();
+            plan.MuxPlan = muxService.BuildMuxPlan(new FfmpegMuxRequest
+            {
+                FfmpegPath = summary.Ffmpeg.Path,
+                InputMkvPath = summary.MkvPath,
+                OutputMkvPath = summary.OutputMkvPath,
+                AudioTrackIndex = summary.AudioTrackIndex,
+                AudioFilter = plan.AudioFilter,
+                AudioCodec = "aac"
+            });
+
+            plan.FfmpegCommandLine = plan.MuxPlan.CommandLine;
+            plan.MuxPlanBuilt = true;
+            plan.Message = "Dry-run FFmpeg command generated. No media file was created.";
+
+            Write(log, "success", "Built " + plan.MuteSegments.Count + " mute segment(s).", 1);
+            Write(log, "info", "FFmpeg dry-run command:", 1);
+            Write(log, "data", plan.FfmpegCommandLine, 2);
+
+            return plan;
         }
 
         private static string PromptForExistingMkv(Action<string, string, int> log)
@@ -183,7 +323,6 @@ namespace BachFlixNfo.Features
                 Write(log, "error", "Please enter an existing .srt file path.", 1);
             }
         }
-
         private static string PromptForDictionaryPath(Action<string, string, int> log, string mkvPath)
         {
             List<string> suggestions = GetDictionarySuggestions(mkvPath)
@@ -226,13 +365,34 @@ namespace BachFlixNfo.Features
             }
         }
 
-        private static int PromptForAudioTrackIndex(Action<string, string, int> log)
+        private static int PromptForAudioTrackIndex(Action<string, string, int> log, IReadOnlyList<AudioTrackInfo> audioTracks)
         {
+            if (audioTracks != null && audioTracks.Count > 0)
+            {
+                Write(log, "info", "Audio tracks:", 1);
+                foreach (AudioTrackInfo track in audioTracks)
+                    Write(log, "data", track.Describe(), 1);
+
+                while (true)
+                {
+                    Write(log, "question", "Audio track index to censor. Press Enter for 0:", 1);
+                    string input = (Console.ReadLine() ?? "").Trim();
+                    if (string.IsNullOrWhiteSpace(input))
+                        return 0;
+
+                    int selectedIndex;
+                    if (int.TryParse(input, out selectedIndex) && audioTracks.Any(t => t.AudioTrackIndex == selectedIndex))
+                        return selectedIndex;
+
+                    Write(log, "error", "Please choose one of the listed audio track indexes.", 1);
+                }
+            }
+
             Write(log, "question", "Audio track index to censor later, 0-based audio track number. Press Enter for 0:", 1);
-            string input = (Console.ReadLine() ?? "").Trim();
+            string fallbackInput = (Console.ReadLine() ?? "").Trim();
 
             int audioTrackIndex;
-            if (!int.TryParse(input, out audioTrackIndex) || audioTrackIndex < 0)
+            if (!int.TryParse(fallbackInput, out audioTrackIndex) || audioTrackIndex < 0)
                 audioTrackIndex = 0;
 
             return audioTrackIndex;
@@ -282,17 +442,25 @@ namespace BachFlixNfo.Features
 
         private static void WriteSummary(AudioCensorScanSummary summary, Action<string, string, int> log)
         {
-            Write(log, "info", "Audio censor scan complete.", 1);
+            Write(log, "info", "Audio censor dry run complete.", 1);
             Write(log, "data", "Input MKV: " + summary.MkvPath, 1);
             Write(log, "data", "SRT: " + summary.SubtitlePath, 1);
             Write(log, "data", "Dictionary terms: " + summary.DictionaryTermCount, 1);
             Write(log, "data", "Detected profanity occurrences: " + summary.ScanResult.Occurrences.Count, 1);
-            Write(log, "data", "Approved for future alignment: " + summary.ApprovedOccurrences.Count, 1);
+            Write(log, "data", "Approved for censor plan: " + summary.ApprovedOccurrences.Count, 1);
             Write(log, "data", "Selected audio track index: " + summary.AudioTrackIndex, 1);
             Write(log, "data", "Future clean output path: " + summary.OutputMkvPath, 1);
-            Write(log, "warning", "WhisperX alignment and FFmpeg mux execution are placeholders in this commit, so no media file was created.", 2);
-        }
 
+            if (summary.CensorPlan != null)
+            {
+                Write(log, "data", "Mute segments: " + summary.CensorPlan.MuteSegments.Count, 1);
+                Write(log, summary.CensorPlan.FallbackSegmentsUsed ? "warning" : "success", "Subtitle cue fallback used: " + (summary.CensorPlan.FallbackSegmentsUsed ? "yes" : "no"), 1);
+                if (!string.IsNullOrWhiteSpace(summary.CensorPlan.Message))
+                    Write(log, summary.CensorPlan.MuxPlanBuilt ? "success" : "warning", summary.CensorPlan.Message, 1);
+            }
+
+            Write(log, "warning", "Dry-run only: no media file was created.", 2);
+        }
         private static void WriteLogFile(
             AudioCensorScanSummary summary,
             IList<string> commandLog,
@@ -300,7 +468,7 @@ namespace BachFlixNfo.Features
         {
             var lines = new List<string>
             {
-                "BachFlixNfo Audio Censor Scan",
+                "BachFlixNfo Audio Censor Dry Run",
                 "Created: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                 "",
                 "Input MKV: " + summary.MkvPath,
@@ -313,8 +481,21 @@ namespace BachFlixNfo.Features
                 "FFprobe: " + DescribeTool(summary.Ffprobe),
                 "WhisperX: " + DescribeTool(summary.WhisperX),
                 "",
-                "Commands executed:"
+                "Audio tracks:"
             };
+
+            if (summary.AudioTracks.Count == 0)
+            {
+                lines.Add("  (none read)");
+            }
+            else
+            {
+                foreach (AudioTrackInfo track in summary.AudioTracks)
+                    lines.Add("  " + track.Describe());
+            }
+
+            lines.Add("");
+            lines.Add("Commands executed:");
 
             if (commandLog == null || commandLog.Count == 0)
             {
@@ -350,13 +531,128 @@ namespace BachFlixNfo.Features
                 }
             }
 
+            WritePlanLogLines(summary.CensorPlan, lines);
+
             string error;
             string logPath = global::BachFlixLog.WriteBachFlixLog(lines, "Audio Censor", "AudioCensor", out error);
 
             if (!string.IsNullOrWhiteSpace(logPath))
-                Write(log, "success", "Audio censor scan log written: " + logPath, 2);
+                Write(log, "success", "Audio censor dry-run log written: " + logPath, 2);
             else if (!string.IsNullOrWhiteSpace(error))
-                Write(log, "warning", "Could not write audio censor scan log: " + error, 2);
+                Write(log, "warning", "Could not write audio censor dry-run log: " + error, 2);
+        }
+
+        private static void WritePlanLogLines(AudioCensorPlan plan, List<string> lines)
+        {
+            lines.Add("");
+            lines.Add("Dry-run censor plan:");
+
+            if (plan == null)
+            {
+                lines.Add("  (not built)");
+                return;
+            }
+
+            lines.Add("  Alignment attempted: " + (plan.AlignmentAttempted ? "yes" : "no"));
+            lines.Add("  Alignment succeeded: " + (plan.AlignmentSucceeded ? "yes" : "no"));
+            lines.Add("  Subtitle fallback used: " + (plan.FallbackSegmentsUsed ? "yes" : "no"));
+            lines.Add("  Mux plan built: " + (plan.MuxPlanBuilt ? "yes" : "no"));
+            lines.Add("  Message: " + plan.Message);
+            if (!string.IsNullOrWhiteSpace(plan.AlignmentMessage))
+                lines.Add("  Alignment message: " + plan.AlignmentMessage);
+
+            if (plan.AlignmentResult != null)
+            {
+                lines.Add("  Transcript words: " + plan.AlignmentResult.TranscriptWordCount);
+                lines.Add("  Aligned words: " + plan.AlignmentResult.AlignedWords.Count);
+                lines.Add("  Unaligned occurrences: " + plan.AlignmentResult.UnalignedOccurrences.Count);
+                if (plan.AlignmentResult.UnalignedOccurrences.Count > 0)
+                {
+                    lines.Add("  Unaligned review numbers: " + string.Join(", ", plan.AlignmentResult.UnalignedOccurrences.Select(o => o.ReviewNumber)));
+                }
+                lines.Add("  Work directory: " + plan.AlignmentResult.WorkDirectory);
+                lines.Add("  Transcript JSON: " + plan.AlignmentResult.TranscriptJsonPath);
+                lines.Add("  Temporary files cleaned: " + (plan.AlignmentResult.TemporaryFilesCleaned ? "yes" : "no"));
+            }
+
+            lines.Add("");
+            lines.Add("Mute segments:");
+            if (plan.MuteSegments.Count == 0)
+            {
+                lines.Add("  (none)");
+            }
+            else
+            {
+                foreach (AudioMuteSegment segment in plan.MuteSegments)
+                {
+                    string source = segment.SourceOccurrence == null ? "fallback" : "review #" + segment.SourceOccurrence.ReviewNumber;
+                    if (segment.SourceOccurrence != null)
+                        source += segment.IsFallback ? " (subtitle fallback)" : " (aligned)";
+                    lines.Add("  " + FormatTime(segment.Start) + " --> " + FormatTime(segment.End) + " | " + source);
+                }
+            }
+
+            lines.Add("");
+            lines.Add("Audio filter:");
+            lines.Add(string.IsNullOrWhiteSpace(plan.AudioFilter) ? "  (none)" : "  " + plan.AudioFilter);
+
+            lines.Add("");
+            lines.Add("FFmpeg dry-run command:");
+            lines.Add(string.IsNullOrWhiteSpace(plan.FfmpegCommandLine) ? "  (none)" : "  " + plan.FfmpegCommandLine);
+        }
+        private static List<AudioMuteSegment> CreateSubtitleFallbackSegments(IEnumerable<ProfanityOccurrence> occurrences)
+        {
+            var segments = new List<AudioMuteSegment>();
+            if (occurrences == null)
+                return segments;
+
+            foreach (ProfanityOccurrence occurrence in occurrences)
+            {
+                if (occurrence == null || occurrence.Cue == null || occurrence.Cue.End <= occurrence.Cue.Start)
+                    continue;
+
+                segments.Add(new AudioMuteSegment
+                {
+                    Start = occurrence.Cue.Start,
+                    End = occurrence.Cue.End,
+                    SourceOccurrence = occurrence,
+                    IsFallback = true
+                });
+            }
+
+            return segments;
+        }
+
+        private static List<AudioMuteSegment> MergeSegments(IEnumerable<AudioMuteSegment> segments)
+        {
+            var ordered = (segments ?? Enumerable.Empty<AudioMuteSegment>())
+                .Where(s => s != null && s.End > s.Start)
+                .OrderBy(s => s.Start)
+                .ThenBy(s => s.End)
+                .ToList();
+
+            var merged = new List<AudioMuteSegment>();
+            foreach (AudioMuteSegment segment in ordered)
+            {
+                AudioMuteSegment last = merged.LastOrDefault();
+                if (last != null && segment.Start <= last.End)
+                {
+                    if (segment.End > last.End)
+                        last.End = segment.End;
+                    last.IsFallback = last.IsFallback || segment.IsFallback;
+                    continue;
+                }
+
+                merged.Add(new AudioMuteSegment
+                {
+                    Start = segment.Start,
+                    End = segment.End,
+                    SourceOccurrence = segment.SourceOccurrence,
+                    IsFallback = segment.IsFallback
+                });
+            }
+
+            return merged;
         }
 
         private static List<string> GetDictionarySuggestions(string mkvPath)
@@ -412,7 +708,12 @@ namespace BachFlixNfo.Features
             if (value == null)
                 return "";
 
-            return value.Trim().Trim('"');
+            return value
+                .Trim()
+                .Trim('"')
+                .Trim('\uFEFF', '\u200B', '\u200E', '\u200F')
+                .Trim()
+                .Trim('"');
         }
 
         private static string FormatTime(TimeSpan value)
@@ -434,6 +735,25 @@ namespace BachFlixNfo.Features
                 return value;
 
             return value.Substring(0, Math.Max(0, maxLength - 3)) + "...";
+        }
+
+        private static string GetEnvOrDefault(string name, string fallback)
+        {
+            string value = Environment.GetEnvironmentVariable(name);
+            return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+        }
+
+        private static bool GetBooleanEnv(string name)
+        {
+            string value = Environment.GetEnvironmentVariable(name);
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+
+            value = value.Trim();
+            return value.Equals("1", StringComparison.OrdinalIgnoreCase) ||
+                   value.Equals("true", StringComparison.OrdinalIgnoreCase) ||
+                   value.Equals("yes", StringComparison.OrdinalIgnoreCase) ||
+                   value.Equals("y", StringComparison.OrdinalIgnoreCase);
         }
 
         private static void Write(Action<string, string, int> log, string type, string message, int lines)
@@ -485,9 +805,11 @@ namespace BachFlixNfo.Features
         public string ProfanityDictionaryPath { get; set; }
         public int DictionaryTermCount { get; set; }
         public int AudioTrackIndex { get; set; }
+        public List<AudioTrackInfo> AudioTracks { get; set; }
         public string OutputMkvPath { get; set; }
         public SubtitleScanResult ScanResult { get; set; }
         public List<ProfanityOccurrence> ApprovedOccurrences { get; set; }
+        public AudioCensorPlan CensorPlan { get; set; }
         public ExternalToolResolution Ffmpeg { get; set; }
         public ExternalToolResolution Ffprobe { get; set; }
         public ExternalToolResolution WhisperX { get; set; }
@@ -498,11 +820,43 @@ namespace BachFlixNfo.Features
             SubtitlePath = "";
             ProfanityDictionaryPath = "";
             OutputMkvPath = "";
+            AudioTracks = new List<AudioTrackInfo>();
             ScanResult = new SubtitleScanResult();
             ApprovedOccurrences = new List<ProfanityOccurrence>();
+            CensorPlan = new AudioCensorPlan();
             Ffmpeg = new ExternalToolResolution { ToolName = "ffmpeg" };
             Ffprobe = new ExternalToolResolution { ToolName = "ffprobe" };
             WhisperX = new ExternalToolResolution { ToolName = "whisperx" };
+        }
+    }
+
+    public sealed class AudioCensorPlan
+    {
+        public string InputMkvPath { get; set; }
+        public string OutputMkvPath { get; set; }
+        public int AudioTrackIndex { get; set; }
+        public bool AlignmentAttempted { get; set; }
+        public bool AlignmentSucceeded { get; set; }
+        public bool FallbackSegmentsUsed { get; set; }
+        public bool MuxPlanBuilt { get; set; }
+        public string AlignmentMessage { get; set; }
+        public string Message { get; set; }
+        public WhisperAlignmentResult AlignmentResult { get; set; }
+        public List<AudioMuteSegment> MuteSegments { get; private set; }
+        public string AudioFilter { get; set; }
+        public FfmpegMuxPlan MuxPlan { get; set; }
+        public string FfmpegCommandLine { get; set; }
+
+        public AudioCensorPlan()
+        {
+            InputMkvPath = "";
+            OutputMkvPath = "";
+            AlignmentMessage = "";
+            Message = "";
+            MuteSegments = new List<AudioMuteSegment>();
+            AudioFilter = "";
+            MuxPlan = new FfmpegMuxPlan();
+            FfmpegCommandLine = "";
         }
     }
 }

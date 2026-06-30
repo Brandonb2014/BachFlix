@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace BachFlixNfo.Features
 {
@@ -105,9 +106,24 @@ namespace BachFlixNfo.Features
                     CreateNoWindow = true
                 };
 
-                using (Process process = Process.Start(psi))
+                var stdout = new StringBuilder();
+                var stderr = new StringBuilder();
+
+                using (var process = new Process())
                 {
-                    if (process == null)
+                    process.StartInfo = psi;
+                    process.OutputDataReceived += delegate (object sender, DataReceivedEventArgs e)
+                    {
+                        if (e.Data != null)
+                            stdout.AppendLine(e.Data);
+                    };
+                    process.ErrorDataReceived += delegate (object sender, DataReceivedEventArgs e)
+                    {
+                        if (e.Data != null)
+                            stderr.AppendLine(e.Data);
+                    };
+
+                    if (!process.Start())
                     {
                         return new ExternalCommandResult
                         {
@@ -116,15 +132,16 @@ namespace BachFlixNfo.Features
                         };
                     }
 
-                    string stdout = process.StandardOutput.ReadToEnd();
-                    string stderr = process.StandardError.ReadToEnd();
+                    process.BeginOutputReadLine();
+                    process.BeginErrorReadLine();
+                    process.WaitForExit();
                     process.WaitForExit();
 
                     return new ExternalCommandResult
                     {
                         ExitCode = process.ExitCode,
-                        StandardOutput = stdout ?? "",
-                        StandardError = stderr ?? ""
+                        StandardOutput = stdout.ToString(),
+                        StandardError = stderr.ToString()
                     };
                 }
             }

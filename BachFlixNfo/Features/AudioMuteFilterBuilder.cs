@@ -7,6 +7,10 @@ namespace BachFlixNfo.Features
 {
     public sealed class AudioMuteFilterBuilder
     {
+        private static readonly TimeSpan WordPreRoll = TimeSpan.FromMilliseconds(120);
+        private static readonly TimeSpan WordPostRoll = TimeSpan.FromMilliseconds(160);
+        private static readonly TimeSpan MinimumWordMuteDuration = TimeSpan.FromMilliseconds(350);
+
         public string BuildMuteFilter(IEnumerable<AudioMuteSegment> segments)
         {
             if (segments == null)
@@ -36,15 +40,41 @@ namespace BachFlixNfo.Features
                 if (word == null || word.End <= word.Start)
                     continue;
 
+                TimeSpan start = word.Start - WordPreRoll;
+                if (start < TimeSpan.Zero)
+                    start = TimeSpan.Zero;
+
+                TimeSpan end = word.End + WordPostRoll;
+                ExpandToMinimumDuration(ref start, ref end, MinimumWordMuteDuration);
+
+                if (end <= start)
+                    continue;
+
                 segments.Add(new AudioMuteSegment
                 {
-                    Start = word.Start,
-                    End = word.End,
-                    SourceOccurrence = word.SourceOccurrence
+                    Start = start,
+                    End = end,
+                    SourceOccurrence = word.SourceOccurrence,
+                    IsFallback = false
                 });
             }
 
             return segments;
+        }
+
+        private static void ExpandToMinimumDuration(ref TimeSpan start, ref TimeSpan end, TimeSpan minimumDuration)
+        {
+            TimeSpan duration = end - start;
+            if (duration >= minimumDuration)
+                return;
+
+            TimeSpan midpoint = TimeSpan.FromTicks((start.Ticks + end.Ticks) / 2);
+            TimeSpan half = TimeSpan.FromTicks(minimumDuration.Ticks / 2);
+            start = midpoint - half;
+            if (start < TimeSpan.Zero)
+                start = TimeSpan.Zero;
+
+            end = start + minimumDuration;
         }
 
         private static string BuildVolumeFilter(AudioMuteSegment segment)
@@ -67,5 +97,6 @@ namespace BachFlixNfo.Features
         public TimeSpan Start { get; set; }
         public TimeSpan End { get; set; }
         public ProfanityOccurrence SourceOccurrence { get; set; }
+        public bool IsFallback { get; set; }
     }
 }
