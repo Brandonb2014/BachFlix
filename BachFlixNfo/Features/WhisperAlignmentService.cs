@@ -189,17 +189,21 @@ namespace BachFlixNfo.Features
             var words = new List<TimedTranscriptWord>();
 
             JArray wordSegments = root["word_segments"] as JArray;
-            if (wordSegments != null)
-                AddWords(words, wordSegments);
-
-            JArray segments = root["segments"] as JArray;
-            if (segments != null)
+            if (wordSegments != null && wordSegments.Count > 0)
             {
-                foreach (JToken segment in segments)
+                AddWords(words, wordSegments);
+            }
+            else
+            {
+                JArray segments = root["segments"] as JArray;
+                if (segments != null)
                 {
-                    JArray segmentWords = segment["words"] as JArray;
-                    if (segmentWords != null)
-                        AddWords(words, segmentWords);
+                    foreach (JToken segment in segments)
+                    {
+                        JArray segmentWords = segment["words"] as JArray;
+                        if (segmentWords != null)
+                            AddWords(words, segmentWords);
+                    }
                 }
             }
 
@@ -207,6 +211,8 @@ namespace BachFlixNfo.Features
                 .Where(w => w.End > w.Start && !string.IsNullOrWhiteSpace(w.NormalizedWord))
                 .OrderBy(w => w.Start)
                 .ThenBy(w => w.End)
+                .GroupBy(w => w.NormalizedWord + "|" + w.Start.Ticks + "|" + w.End.Ticks)
+                .Select(g => g.First())
                 .ToList();
         }
 

@@ -10,13 +10,35 @@ namespace BachFlixNfo.Features
     public sealed class CensoredSubtitleWriter
     {
         private static readonly Regex WordRegex = new Regex(@"[\p{L}\p{Nd}]+(?:['\u2019-][\p{L}\p{Nd}]+)*", RegexOptions.Compiled);
+        private static readonly Regex SubwordRegex = new Regex(@"[\p{L}\p{Nd}]+(?:['\u2019][\p{L}\p{Nd}]+)*", RegexOptions.Compiled);
         private static readonly Regex SrtVttTimeLineRegex = new Regex(@"^\s*((?:\d{1,3}:)?\d{2}:\d{2}[\.,]\d{3})\s*-->\s*((?:\d{1,3}:)?\d{2}:\d{2}[\.,]\d{3})", RegexOptions.Compiled);
 
         public CensoredSubtitleOutput WriteCensoredSubtitle(
             SubtitleSourceInfo source,
             IEnumerable<TranscriptProfanityHit> approvedHits,
+            IEnumerable<ProfanityOccurrence> approvedSubtitleOccurrences,
             string mkvPath,
             string replacement)
+        {
+            SubtitleReplacementMode mode = SubtitleReplacementMode.AsterisksSameLength;
+            string replacementText = replacement;
+            if (!string.IsNullOrWhiteSpace(replacement) &&
+                !replacement.Equals("asterisks", StringComparison.OrdinalIgnoreCase) &&
+                replacement != "*")
+            {
+                mode = SubtitleReplacementMode.FixedText;
+            }
+
+            return WriteCensoredSubtitle(source, approvedHits, approvedSubtitleOccurrences, mkvPath, mode, replacementText);
+        }
+
+        public CensoredSubtitleOutput WriteCensoredSubtitle(
+            SubtitleSourceInfo source,
+            IEnumerable<TranscriptProfanityHit> approvedHits,
+            IEnumerable<ProfanityOccurrence> approvedSubtitleOccurrences,
+            string mkvPath,
+            SubtitleReplacementMode replacementMode,
+            string replacementText)
         {
             if (source == null)
                 throw new ArgumentNullException(nameof(source));
@@ -29,16 +51,20 @@ namespace BachFlixNfo.Features
                 .Where(h => h != null && h.Approved)
                 .ToList();
 
-            if (hits.Count == 0)
+            List<ProfanityOccurrence> subtitleOccurrences = (approvedSubtitleOccurrences ?? Enumerable.Empty<ProfanityOccurrence>())
+                .Where(o => o != null && o.Cue != null)
+                .ToList();
+
+            if (hits.Count == 0 && subtitleOccurrences.Count == 0)
                 return null;
 
             string extension = Path.GetExtension(inputPath).ToLowerInvariant();
             string outputPath = BuildOutputPath(source, mkvPath, extension);
 
             if (extension == ".ass" || extension == ".ssa")
-                WriteAssSubtitle(inputPath, outputPath, hits, replacement);
+                WriteAssSubtitle(inputPath, outputPath, hits, subtitleOccurrences, replacementMode, replacementText);
             else if (extension == ".srt" || extension == ".vtt")
-                WriteTimedTextSubtitle(inputPath, outputPath, hits, replacement);
+                WriteTimedTextSubtitle(inputPath, outputPath, hits, subtitleOccurrences, replacementMode, replacementText);
             else
                 throw new NotSupportedException("Subtitle format is not supported for censor output: " + extension);
 
@@ -54,7 +80,7 @@ namespace BachFlixNfo.Features
             };
         }
 
-        private static void WriteTimedTextSubtitle(string inputPath, string outputPath, List<TranscriptProfanityHit> hits, string replacement)
+        private static void WriteTimedTextSubtitle(string inputPath, string outputPath, List<TranscriptProfanityHit> hits, List<ProfanityOccurrence> subtitleOccurrences, SubtitleReplacementMode replacementMode, string replacementText)
         {
             string[] lines = File.ReadAllLines(inputPath);
             var output = new List<string>(lines.Length);
@@ -81,13 +107,13 @@ namespace BachFlixNfo.Features
                     continue;
                 }
 
-                output.Add(inCue ? ReplaceWords(line, cueStart, cueEnd, hits, replacement) : line);
+                output.Add(inCue ? ReplaceWords(line, cueStart, cueEnd, hits, subtitleOccurrences, replacementMode, replacementText) : line);
             }
 
             File.WriteAllLines(outputPath, output);
         }
 
-        private static void WriteAssSubtitle(string inputPath, string outputPath, List<TranscriptProfanityHit> hits, string replacement)
+        private static void WriteAssSubtitle(string inputPath, string outputPath, List<TranscriptProfanityHit> hits, List<ProfanityOccurrence> subtitleOccurrences, SubtitleReplacementMode replacementMode, string replacementText)
         {
             string[] lines = File.ReadAllLines(inputPath);
             var output = new List<string>(lines.Length);
@@ -133,7 +159,7 @@ namespace BachFlixNfo.Features
                         {
                             TimeSpan start = ParseAssTime(values[startIndex]);
                             TimeSpan end = ParseAssTime(values[endIndex]);
-                            values[textIndex] = ReplaceWords(values[textIndex], start, end, hits, replacement);
+                            values[textIndex] = ReplaceWords(values[textIndex], start, end, hits, subtitleOccurrences, replacementMode, replacementText);
                             output.Add("Dialogue: " + string.Join(",", values));
                             continue;
                         }
@@ -146,30 +172,81 @@ namespace BachFlixNfo.Features
             File.WriteAllLines(outputPath, output);
         }
 
-        private static string ReplaceWords(string text, TimeSpan cueStart, TimeSpan cueEnd, List<TranscriptProfanityHit> hits, string replacement)
+        private static string ReplaceWords(string text, TimeSpan cueStart, TimeSpan cueEnd, List<TranscriptProfanityHit> hits, List<ProfanityOccurrence> subtitleOccurrences, SubtitleReplacementMode replacementMode, string replacementText)
         {
             List<TranscriptProfanityHit> cueHits = hits
                 .Where(h => TimesOverlap(cueStart, cueEnd, h.Start, h.End, TimeSpan.FromSeconds(2)))
                 .ToList();
 
-            if (cueHits.Count == 0)
+            List<ProfanityOccurrence> cueOccurrences = subtitleOccurrences
+                .Where(o => o.Cue != null && TimesOverlap(cueStart, cueEnd, o.Cue.Start, o.Cue.End, TimeSpan.FromMilliseconds(50)))
+                .ToList();
+
+            if (cueHits.Count == 0 && cueOccurrences.Count == 0)
                 return text;
 
-            return WordRegex.Replace(text, match =>
-            {
-                string normalized = ProfanityDictionary.NormalizeToken(match.Value);
-                bool shouldCensor = cueHits.Any(h =>
-                    normalized == ProfanityDictionary.NormalizeToken(h.Word) ||
-                    normalized == ProfanityDictionary.NormalizeToken(h.DictionaryTerm));
+            HashSet<string> censorTargets = BuildCensorTargets(cueHits, cueOccurrences);
+            return WordRegex.Replace(text, match => ReplaceToken(match.Value, censorTargets, replacementMode, replacementText));
+        }
 
-                if (!shouldCensor)
+        private static HashSet<string> BuildCensorTargets(List<TranscriptProfanityHit> cueHits, List<ProfanityOccurrence> cueOccurrences)
+        {
+            var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (TranscriptProfanityHit hit in cueHits ?? new List<TranscriptProfanityHit>())
+            {
+                AddCensorTarget(targets, hit.Word);
+                AddCensorTarget(targets, hit.DictionaryTerm);
+            }
+
+            foreach (ProfanityOccurrence occurrence in cueOccurrences ?? new List<ProfanityOccurrence>())
+            {
+                AddCensorTarget(targets, occurrence.Word);
+                AddCensorTarget(targets, occurrence.DictionaryTerm);
+            }
+
+            return targets;
+        }
+
+        private static void AddCensorTarget(HashSet<string> targets, string value)
+        {
+            string normalized = ProfanityDictionary.NormalizeToken(value);
+            if (!string.IsNullOrWhiteSpace(normalized))
+                targets.Add(normalized);
+        }
+
+        private static string ReplaceToken(string token, HashSet<string> censorTargets, SubtitleReplacementMode replacementMode, string replacementText)
+        {
+            if (string.IsNullOrEmpty(token) || censorTargets == null || censorTargets.Count == 0)
+                return token;
+
+            string normalized = ProfanityDictionary.NormalizeToken(token);
+            if (censorTargets.Contains(normalized))
+                return BuildReplacement(token, replacementMode, replacementText);
+
+            if (token.IndexOf('-') < 0)
+                return token;
+
+            bool changed = false;
+            string replaced = SubwordRegex.Replace(token, match =>
+            {
+                string subwordNormalized = ProfanityDictionary.NormalizeToken(match.Value);
+                if (!censorTargets.Contains(subwordNormalized))
                     return match.Value;
 
-                if (string.IsNullOrWhiteSpace(replacement) || replacement.Equals("asterisks", StringComparison.OrdinalIgnoreCase) || replacement == "*")
-                    return new string('*', match.Value.Length);
-
-                return replacement;
+                changed = true;
+                return BuildReplacement(match.Value, replacementMode, replacementText);
             });
+
+            return changed ? replaced : token;
+        }
+
+        private static string BuildReplacement(string value, SubtitleReplacementMode replacementMode, string replacementText)
+        {
+            if (replacementMode == SubtitleReplacementMode.AsterisksSameLength)
+                return new string('*', value.Length);
+
+            return string.IsNullOrEmpty(replacementText) ? "***" : replacementText;
         }
 
         private static bool TimesOverlap(TimeSpan cueStart, TimeSpan cueEnd, TimeSpan hitStart, TimeSpan hitEnd, TimeSpan tolerance)
@@ -201,7 +278,9 @@ namespace BachFlixNfo.Features
             if (string.IsNullOrWhiteSpace(directory))
                 directory = Path.GetDirectoryName(mkvPath) ?? "";
 
-            return UniquePath(Path.Combine(directory, baseName + ".Clean" + extension));
+            string outputDirectory = Path.Combine(directory, "Cleaned");
+            Directory.CreateDirectory(outputDirectory);
+            return Path.Combine(outputDirectory, baseName + extension);
         }
 
         private static string UniquePath(string path)

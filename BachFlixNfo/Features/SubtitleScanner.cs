@@ -14,7 +14,7 @@ namespace BachFlixNfo.Features
                 RegexOptions.Compiled);
 
         private static readonly Regex WordRegex =
-            new Regex(@"[\p{L}\p{Nd}]+(?:['’-][\p{L}\p{Nd}]+)*", RegexOptions.Compiled);
+            new Regex(@"[\p{L}\p{Nd}]+(?:['\u2019-][\p{L}\p{Nd}]+)*", RegexOptions.Compiled);
 
         private static readonly Regex HtmlTagRegex =
             new Regex("<[^>]+>", RegexOptions.Compiled);
@@ -38,25 +38,28 @@ namespace BachFlixNfo.Features
                 string scanText = BuildScannableText(cue.Text);
                 int cueOccurrenceNumber = 0;
 
-                foreach (Match match in WordRegex.Matches(scanText))
+                List<Match> tokens = WordRegex.Matches(scanText).Cast<Match>().ToList();
+                for (int tokenIndex = 0; tokenIndex < tokens.Count; tokenIndex++)
                 {
-                    string dictionaryTerm;
-                    if (!profanityDictionary.TryMatch(match.Value, out dictionaryTerm))
-                        continue;
-
-                    cueOccurrenceNumber++;
-                    occurrences.Add(new ProfanityOccurrence
+                    Match match = tokens[tokenIndex];
+                    foreach (SubtitleProfanityTokenMatch tokenMatch in SubtitleProfanityTokenMatcher.FindMatches(match, profanityDictionary))
                     {
-                        ReviewNumber = occurrences.Count + 1,
-                        Cue = cue,
-                        SubtitleSequenceNumber = cue.SequenceNumber,
-                        CueIndex = cue.CueIndex,
-                        Word = match.Value,
-                        DictionaryTerm = dictionaryTerm,
-                        CharacterIndex = match.Index,
-                        CharacterLength = match.Length,
-                        OccurrenceInCue = cueOccurrenceNumber
-                    });
+                        cueOccurrenceNumber++;
+                        occurrences.Add(new ProfanityOccurrence
+                        {
+                            ReviewNumber = occurrences.Count + 1,
+                            Cue = cue,
+                            SubtitleSequenceNumber = cue.SequenceNumber,
+                            CueIndex = cue.CueIndex,
+                            Word = tokenMatch.Word,
+                            DictionaryTerm = tokenMatch.DictionaryTerm,
+                            CharacterIndex = tokenMatch.CharacterIndex,
+                            CharacterLength = tokenMatch.CharacterLength,
+                            OccurrenceInCue = cueOccurrenceNumber,
+                            TokenIndexInCue = tokenIndex + 1,
+                            TokenCountInCue = tokens.Count
+                        });
+                    }
                 }
             }
 
@@ -234,11 +237,71 @@ namespace BachFlixNfo.Features
         public int CharacterIndex { get; set; }
         public int CharacterLength { get; set; }
         public int OccurrenceInCue { get; set; }
+        public int TokenIndexInCue { get; set; }
+        public int TokenCountInCue { get; set; }
 
         public ProfanityOccurrence()
         {
             Word = "";
             DictionaryTerm = "";
+        }
+    }
+    internal sealed class SubtitleProfanityTokenMatch
+    {
+        public string Word { get; set; }
+        public string DictionaryTerm { get; set; }
+        public int CharacterIndex { get; set; }
+        public int CharacterLength { get; set; }
+
+        public SubtitleProfanityTokenMatch()
+        {
+            Word = "";
+            DictionaryTerm = "";
+        }
+    }
+
+    internal static class SubtitleProfanityTokenMatcher
+    {
+        private static readonly Regex SubwordRegex =
+            new Regex(@"[\p{L}\p{Nd}]+(?:['\u2019][\p{L}\p{Nd}]+)*", RegexOptions.Compiled);
+
+        public static IEnumerable<SubtitleProfanityTokenMatch> FindMatches(Match token, ProfanityDictionary dictionary)
+        {
+            if (token == null || dictionary == null)
+                yield break;
+
+            string dictionaryTerm;
+            if (dictionary.TryMatch(token.Value, out dictionaryTerm))
+            {
+                yield return new SubtitleProfanityTokenMatch
+                {
+                    Word = token.Value,
+                    DictionaryTerm = dictionaryTerm,
+                    CharacterIndex = token.Index,
+                    CharacterLength = token.Length
+                };
+                yield break;
+            }
+
+            if (token.Value.IndexOf('-') < 0)
+                yield break;
+
+            foreach (Match subword in SubwordRegex.Matches(token.Value))
+            {
+                if (subword.Length == token.Length)
+                    continue;
+
+                if (!dictionary.TryMatch(subword.Value, out dictionaryTerm))
+                    continue;
+
+                yield return new SubtitleProfanityTokenMatch
+                {
+                    Word = subword.Value,
+                    DictionaryTerm = dictionaryTerm,
+                    CharacterIndex = token.Index + subword.Index,
+                    CharacterLength = subword.Length
+                };
+            }
         }
     }
 }

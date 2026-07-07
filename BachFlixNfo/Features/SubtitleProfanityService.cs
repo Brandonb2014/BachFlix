@@ -42,25 +42,28 @@ namespace BachFlixNfo.Features
             foreach (SubtitleCue cue in cues)
             {
                 int cueOccurrenceNumber = 0;
-                foreach (Match match in WordRegex.Matches(cue.Text ?? ""))
+                List<Match> tokens = WordRegex.Matches(cue.Text ?? "").Cast<Match>().ToList();
+                for (int tokenIndex = 0; tokenIndex < tokens.Count; tokenIndex++)
                 {
-                    string dictionaryTerm;
-                    if (!dictionary.TryMatch(match.Value, out dictionaryTerm))
-                        continue;
-
-                    cueOccurrenceNumber++;
-                    occurrences.Add(new ProfanityOccurrence
+                    Match match = tokens[tokenIndex];
+                    foreach (SubtitleProfanityTokenMatch tokenMatch in SubtitleProfanityTokenMatcher.FindMatches(match, dictionary))
                     {
-                        ReviewNumber = occurrences.Count + 1,
-                        Cue = cue,
-                        SubtitleSequenceNumber = cue.SequenceNumber,
-                        CueIndex = cue.CueIndex,
-                        Word = match.Value,
-                        DictionaryTerm = dictionaryTerm,
-                        CharacterIndex = match.Index,
-                        CharacterLength = match.Length,
-                        OccurrenceInCue = cueOccurrenceNumber
-                    });
+                        cueOccurrenceNumber++;
+                        occurrences.Add(new ProfanityOccurrence
+                        {
+                            ReviewNumber = occurrences.Count + 1,
+                            Cue = cue,
+                            SubtitleSequenceNumber = cue.SequenceNumber,
+                            CueIndex = cue.CueIndex,
+                            Word = tokenMatch.Word,
+                            DictionaryTerm = tokenMatch.DictionaryTerm,
+                            CharacterIndex = tokenMatch.CharacterIndex,
+                            CharacterLength = tokenMatch.CharacterLength,
+                            OccurrenceInCue = cueOccurrenceNumber,
+                            TokenIndexInCue = tokenIndex + 1,
+                            TokenCountInCue = tokens.Count
+                        });
+                    }
                 }
             }
 

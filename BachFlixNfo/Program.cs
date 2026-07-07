@@ -766,9 +766,60 @@ namespace SheetsQuickstart
             }
         }
 
+        private static bool TryRunAudioCensorFromArgs(string[] args)
+        {
+            if (args == null || args.Length == 0)
+                return false;
+
+            List<string> directPaths = args
+                .Select(CleanCommandLinePath)
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .ToList();
+
+            string joinedPath = CleanCommandLinePath(string.Join(" ", args));
+            if (PathExists(joinedPath))
+            {
+                RunAudioCensorAutopilot(joinedPath);
+                return true;
+            }
+
+            if (directPaths.Count > 0 && directPaths.All(PathExists))
+            {
+                foreach (string path in directPaths)
+                    RunAudioCensorAutopilot(path);
+                return true;
+            }
+
+            DisplayMessage("error", "Command-line audio censor input path was not found: " + joinedPath, 1);
+            return true;
+        }
+
+        private static void RunAudioCensorAutopilot(string inputPath)
+        {
+            DisplayMessage("info", "Audio censor autopilot. Let's go!", 2);
+            AudioCensorRunner.RunAutomatic(
+                inputPath,
+                (t, msg, ind) => DisplayMessage(t, msg, ind));
+        }
+
+        private static bool PathExists(string path)
+        {
+            return !string.IsNullOrWhiteSpace(path) && (File.Exists(path) || Directory.Exists(path));
+        }
+
+        private static string CleanCommandLinePath(string value)
+        {
+            if (value == null)
+                return "";
+
+            return value.Trim().Trim('"').Trim('\uFEFF', '\u200B', '\u200E', '\u200F').Trim().Trim('"');
+        }
         static void Main(string[] args)
         {
             Type("Welcome to the BachFlix NFO Filer 3000! v1.14.4", 0, 0, 1, "blue");
+
+            if (TryRunAudioCensorFromArgs(args))
+                return;
 
             bool keepAskingForChoice = true;
 
@@ -871,7 +922,7 @@ namespace SheetsQuickstart
             audioCompatibilityConverterChoice = "19a";
             Type(audioCompatibilityConverterChoice + "- Add AC3 5.1 compatibility audio from English EAC3 tracks.", 0, 0, 1, CONVERT_FILES_COLOR);
             audioCensorRunnerChoice = "19c";
-            Type(audioCensorRunnerChoice + "- Create WhisperX-based clean audio/subtitles from MKV.", 0, 0, 1, CONVERT_FILES_COLOR);
+            Type(audioCensorRunnerChoice + "- Auto-create WhisperX clean audio/subtitles from an MKV file or folder.", 0, 0, 1, CONVERT_FILES_COLOR);
 
             const string TMDB_CALL_COLOR = "Green";
             Type("");

@@ -148,7 +148,7 @@ namespace BachFlixNfo.Features
             if (string.IsNullOrWhiteSpace(extension))
                 extension = ".mkv";
 
-            return Path.Combine(directory, fileNameWithoutExtension + "_Clean" + extension);
+            return Path.Combine(directory, "Cleaned", fileNameWithoutExtension + extension);
         }
 
         public FfmpegMuxPlan BuildMuxPlan(FfmpegMuxRequest request)
@@ -186,6 +186,8 @@ namespace BachFlixNfo.Features
             if (audioOutputs.Count == 0 && subtitleOutputs.Count == 0)
                 throw new ArgumentException("At least one censored audio or subtitle output is required.", nameof(request));
 
+            HashSet<int> replacedAudioTrackIndexes = GetReplacedAudioTrackIndexes(audioOutputs);
+
             var args = new List<string>();
             args.Add("-hide_banner");
             args.Add("-nostdin");
@@ -210,6 +212,12 @@ namespace BachFlixNfo.Features
 
             args.Add("-map");
             args.Add("0");
+
+            foreach (int audioTrackIndex in replacedAudioTrackIndexes.OrderBy(i => i))
+            {
+                args.Add("-map");
+                args.Add("-0:a:" + audioTrackIndex.ToString(CultureInfo.InvariantCulture));
+            }
 
             for (int i = 0; i < audioOutputs.Count; i++)
             {
@@ -237,7 +245,8 @@ namespace BachFlixNfo.Features
             args.Add("copy");
 
             int originalAudioCount = request.MediaProbe == null ? 0 : request.MediaProbe.AudioTracks.Count;
-            for (int i = 0; i < originalAudioCount; i++)
+            int copiedOriginalAudioCount = GetCopiedOriginalAudioCount(originalAudioCount, replacedAudioTrackIndexes);
+            for (int i = 0; i < copiedOriginalAudioCount; i++)
             {
                 args.Add("-disposition:a:" + i);
                 args.Add("0");
@@ -246,7 +255,7 @@ namespace BachFlixNfo.Features
             for (int i = 0; i < audioOutputs.Count; i++)
             {
                 AudioTrackCensorOutput output = audioOutputs[i];
-                int outputAudioOrdinal = originalAudioCount + i;
+                int outputAudioOrdinal = copiedOriginalAudioCount + i;
                 args.Add("-c:a:" + outputAudioOrdinal);
                 args.Add(string.IsNullOrWhiteSpace(output.AudioCodec) ? "flac" : output.AudioCodec);
                 args.Add("-metadata:s:a:" + outputAudioOrdinal);
@@ -297,6 +306,7 @@ namespace BachFlixNfo.Features
             if (plan == null)
                 throw new ArgumentNullException(nameof(plan));
 
+            EnsureOutputDirectory(plan.OutputMkvPath);
             ExternalCommandResult result = ExternalToolResolver.RunProcess(plan.FfmpegPath, plan.Arguments, log, commandLog);
             if (result.ExitCode != 0)
                 throw new InvalidOperationException("FFmpeg mux failed with exit code " + result.ExitCode + ": " + FirstUsefulLine(result.StandardError, result.StandardOutput));
@@ -305,6 +315,30 @@ namespace BachFlixNfo.Features
         public void MuxCensoredAudio(FfmpegMuxPlan plan)
         {
             MuxCensoredMedia(plan, null, null);
+        }
+
+        private static void EnsureOutputDirectory(string outputPath)
+        {
+            string directory = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrWhiteSpace(directory))
+                Directory.CreateDirectory(directory);
+        }
+
+        private static HashSet<int> GetReplacedAudioTrackIndexes(IEnumerable<AudioTrackCensorOutput> audioOutputs)
+        {
+            return new HashSet<int>((audioOutputs ?? Enumerable.Empty<AudioTrackCensorOutput>())
+                .Where(output => output != null && output.SourceAudioTrackIndex >= 0)
+                .Select(output => output.SourceAudioTrackIndex));
+        }
+
+        private static int GetCopiedOriginalAudioCount(int originalAudioCount, HashSet<int> replacedAudioTrackIndexes)
+        {
+            if (originalAudioCount <= 0)
+                return 0;
+
+            int replacedCount = (replacedAudioTrackIndexes ?? new HashSet<int>())
+                .Count(index => index >= 0 && index < originalAudioCount);
+            return Math.Max(0, originalAudioCount - replacedCount);
         }
 
         private static List<string> BuildAudioFilterChains(IReadOnlyList<AudioTrackCensorOutput> audioOutputs)

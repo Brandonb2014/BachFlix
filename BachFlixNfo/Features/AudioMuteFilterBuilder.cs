@@ -47,17 +47,22 @@ namespace BachFlixNfo.Features
                     start = TimeSpan.Zero;
 
                 TimeSpan end = hit.End + after;
-                ExpandToMinimumDuration(ref start, ref end, MinimumWordMuteDuration);
+                TimeSpan minimumDuration = hit.MinMuteDuration > TimeSpan.Zero ? hit.MinMuteDuration : MinimumWordMuteDuration;
+                ExpandToMinimumDuration(ref start, ref end, minimumDuration);
+                if (hit.MaxMuteDuration > TimeSpan.Zero)
+                    ClampToMaximumDuration(ref start, ref end, hit.MaxMuteDuration, hit.Start, hit.End);
 
                 if (end <= start)
                     continue;
 
-                segments.Add(new AudioMuteSegment
+                var segment = new AudioMuteSegment
                 {
                     Start = start,
                     End = end,
                     SourceHit = hit
-                });
+                };
+                segment.SourceHits.Add(hit);
+                segments.Add(segment);
             }
 
             return segments;
@@ -78,6 +83,22 @@ namespace BachFlixNfo.Features
             end = start + minimumDuration;
         }
 
+        private static void ClampToMaximumDuration(ref TimeSpan start, ref TimeSpan end, TimeSpan maximumDuration, TimeSpan anchorStart, TimeSpan anchorEnd)
+        {
+            if (maximumDuration <= TimeSpan.Zero || end - start <= maximumDuration)
+                return;
+
+            TimeSpan midpoint = anchorEnd > anchorStart
+                ? TimeSpan.FromTicks((anchorStart.Ticks + anchorEnd.Ticks) / 2)
+                : TimeSpan.FromTicks((start.Ticks + end.Ticks) / 2);
+            TimeSpan half = TimeSpan.FromTicks(maximumDuration.Ticks / 2);
+            start = midpoint - half;
+            if (start < TimeSpan.Zero)
+                start = TimeSpan.Zero;
+
+            end = start + maximumDuration;
+        }
+
         private static string BuildVolumeFilter(AudioMuteSegment segment)
         {
             return string.Format(
@@ -93,10 +114,81 @@ namespace BachFlixNfo.Features
         }
     }
 
+    public sealed class CensorIntervalMerger
+    {
+        public List<AudioMuteSegment> Merge(IEnumerable<AudioMuteSegment> segments, TimeSpan mergeGap)
+        {
+            TimeSpan gap = mergeGap < TimeSpan.Zero ? TimeSpan.Zero : mergeGap;
+            var ordered = (segments ?? Enumerable.Empty<AudioMuteSegment>())
+                .Where(s => s != null && s.End > s.Start)
+                .OrderBy(s => s.Start)
+                .ThenBy(s => s.End)
+                .ToList();
+
+            var merged = new List<AudioMuteSegment>();
+            foreach (AudioMuteSegment segment in ordered)
+            {
+                AudioMuteSegment last = merged.LastOrDefault();
+                if (last != null && segment.Start <= last.End + gap)
+                {
+                    if (segment.End > last.End)
+                        last.End = segment.End;
+
+                    AddSourceHits(last, segment);
+                    continue;
+                }
+
+                merged.Add(CloneSegment(segment));
+            }
+
+            return merged;
+        }
+
+        private static AudioMuteSegment CloneSegment(AudioMuteSegment segment)
+        {
+            var clone = new AudioMuteSegment
+            {
+                Start = segment.Start,
+                End = segment.End,
+                SourceHit = segment.SourceHit
+            };
+            AddSourceHits(clone, segment);
+            return clone;
+        }
+
+        private static void AddSourceHits(AudioMuteSegment target, AudioMuteSegment source)
+        {
+            if (target == null || source == null)
+                return;
+
+            if (source.SourceHits.Count > 0)
+            {
+                foreach (TranscriptProfanityHit hit in source.SourceHits)
+                {
+                    if (hit != null && !target.SourceHits.Contains(hit))
+                        target.SourceHits.Add(hit);
+                }
+            }
+            else if (source.SourceHit != null && !target.SourceHits.Contains(source.SourceHit))
+            {
+                target.SourceHits.Add(source.SourceHit);
+            }
+
+            if (target.SourceHit == null && target.SourceHits.Count > 0)
+                target.SourceHit = target.SourceHits[0];
+        }
+    }
+
     public sealed class AudioMuteSegment
     {
         public TimeSpan Start { get; set; }
         public TimeSpan End { get; set; }
         public TranscriptProfanityHit SourceHit { get; set; }
+        public List<TranscriptProfanityHit> SourceHits { get; private set; }
+
+        public AudioMuteSegment()
+        {
+            SourceHits = new List<TranscriptProfanityHit>();
+        }
     }
 }

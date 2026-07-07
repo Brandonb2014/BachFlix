@@ -68,7 +68,12 @@ namespace BachFlixNfo.Features
             if (string.IsNullOrWhiteSpace(normalized))
                 return false;
 
-            return _termsByNormalizedValue.TryGetValue(normalized, out dictionaryTerm);
+            if (_termsByNormalizedValue.TryGetValue(normalized, out dictionaryTerm))
+                return true;
+
+            string possessiveBase = GetPossessiveBase(normalized);
+            return !string.IsNullOrWhiteSpace(possessiveBase) &&
+                   _termsByNormalizedValue.TryGetValue(possessiveBase, out dictionaryTerm);
         }
 
         public bool Contains(string subtitleWord)
@@ -82,15 +87,45 @@ namespace BachFlixNfo.Features
             if (string.IsNullOrWhiteSpace(value))
                 return string.Empty;
 
-            var chars = new List<char>(value.Length);
+            string trimmed = value.Trim();
+            var chars = new List<char>(trimmed.Length);
 
-            foreach (char c in value.Trim())
+            for (int i = 0; i < trimmed.Length; i++)
             {
+                char c = trimmed[i];
                 if (char.IsLetterOrDigit(c))
+                {
                     chars.Add(char.ToLowerInvariant(c));
+                    continue;
+                }
+
+                if (IsApostrophe(c) &&
+                    i > 0 &&
+                    i < trimmed.Length - 1 &&
+                    char.IsLetterOrDigit(trimmed[i - 1]) &&
+                    char.IsLetterOrDigit(trimmed[i + 1]))
+                {
+                    chars.Add('\'');
+                }
             }
 
             return new string(chars.ToArray());
+        }
+
+        private static string GetPossessiveBase(string normalized)
+        {
+            if (string.IsNullOrWhiteSpace(normalized))
+                return string.Empty;
+
+            if (normalized.EndsWith("'s", StringComparison.OrdinalIgnoreCase) && normalized.Length > 2)
+                return normalized.Substring(0, normalized.Length - 2);
+
+            return string.Empty;
+        }
+
+        private static bool IsApostrophe(char value)
+        {
+            return value == '\'' || value == '\u2019';
         }
 
         private static string CleanDictionaryLine(string rawLine)
