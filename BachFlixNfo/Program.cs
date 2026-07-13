@@ -269,6 +269,7 @@ namespace SheetsQuickstart
             { "Teens", -1 },
             { "Resolution", -1 },
             { "File Type", -1 },
+            { "File Health", -1 },
             { "Size", -1 },
             { "Auto Title", -1 },
             { "IMDB Title", -1 },
@@ -796,8 +797,8 @@ namespace SheetsQuickstart
 
         private static void RunAudioCensorAutopilot(string inputPath)
         {
-            DisplayMessage("info", "Audio censor autopilot. Let's go!", 2);
-            AudioCensorRunner.RunAutomatic(
+            DisplayMessage("info", "Audio censor path mode. Folders run on autopilot; single MKV files stop for review.", 2);
+            AudioCensorRunner.RunForInputPath(
                 inputPath,
                 (t, msg, ind) => DisplayMessage(t, msg, ind));
         }
@@ -922,7 +923,7 @@ namespace SheetsQuickstart
             audioCompatibilityConverterChoice = "19a";
             Type(audioCompatibilityConverterChoice + "- Add AC3 5.1 compatibility audio from English EAC3 tracks.", 0, 0, 1, CONVERT_FILES_COLOR);
             audioCensorRunnerChoice = "19c";
-            Type(audioCensorRunnerChoice + "- Auto-create WhisperX clean audio/subtitles from an MKV file or folder.", 0, 0, 1, CONVERT_FILES_COLOR);
+            Type(audioCensorRunnerChoice + "- Audio censor MKVs (folders autopilot; single files review before creating clean output).", 0, 0, 1, CONVERT_FILES_COLOR);
 
             const string TMDB_CALL_COLOR = "Green";
             Type("");
@@ -2733,7 +2734,7 @@ namespace SheetsQuickstart
             catch (Exception ex)
             {
                 Type(ex.ToString(), 0, 0, 1);
-                DidntUnderstand(choice);
+                DisplayMessage("error", $"Menu command '{choice}' failed. The command was recognized, but it could not complete. See the error above.", 1);
 
                 return keepAskingForChoice;
             }
@@ -9078,7 +9079,9 @@ namespace SheetsQuickstart
 
         private static string GetVarsValueByName(params string[] names)
         {
-            IList<IList<object>> varsData = GetData("VARS!A:ZZ");
+            IList<IList<object>> varsData = GetSheetValuesWithRetry(
+                "VARS!A:ZZ",
+                "Google Sheets VARS lookup");
             if (varsData == null || names == null || names.Length == 0)
                 return "";
 
@@ -9123,11 +9126,47 @@ namespace SheetsQuickstart
 
         private static string GetFirstCellValue(string range)
         {
-            IList<IList<object>> rows = GetData(range);
+            IList<IList<object>> rows = GetSheetValuesWithRetry(
+                range,
+                "Google Sheets configuration lookup");
             if (rows == null || rows.Count == 0 || rows[0] == null || rows[0].Count == 0)
                 return "";
 
             return (rows[0][0] ?? "").ToString().Trim();
+        }
+
+        private static IList<IList<object>> GetSheetValuesWithRetry(
+            string range,
+            string operation,
+            int maxAttempts = 3)
+        {
+            SheetsService service = CreateSheetsService();
+            maxAttempts = Math.Max(1, maxAttempts);
+
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    var request = service.Spreadsheets.Values.Get(SPREADSHEET_ID, range);
+                    ValueRange response = request.Execute();
+                    return response.Values;
+                }
+                catch (Exception ex) when (attempt < maxAttempts)
+                {
+                    int delaySeconds = (int)Math.Pow(2, attempt);
+                    DisplayMessage(
+                        "warning",
+                        $"{operation} failed; retrying in {delaySeconds}s (attempt {attempt + 1}/{maxAttempts}). {ex.Message}",
+                        2);
+                    Task.Delay(TimeSpan.FromSeconds(delaySeconds)).GetAwaiter().GetResult();
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception(
+                        $"{operation} failed after {attempt}/{maxAttempts} attempt(s): {ex.Message}",
+                        ex);
+                }
+            }
         }
 
         private static string NormalizeVarsKey(string value)
@@ -10815,10 +10854,13 @@ namespace SheetsQuickstart
                     string streamFab = row[Convert.ToInt16(sheetVariables["StreamFab"])].ToString();
                     string resolution = row[Convert.ToInt16(sheetVariables["Resolution"])].ToString();
                     string fileType = row[Convert.ToInt16(sheetVariables["File Type"])].ToString().ToLower();
+                    string fileHealth = GetSheetCell(row, sheetVariables, "File Health");
 
                     int resolutionValue = resolution != "" ? int.Parse(resolution.Replace("p", "")) : 0;
+                    bool fileHealthIsBad = string.Equals(fileHealth.Trim(), "Bad", StringComparison.OrdinalIgnoreCase);
 
-                    if ((tmdbId != "" && tmdbId != "N/A") && (streamFab != "Y" || resolutionValue < 1080 || fileType != "mkv"))
+                    if ((tmdbId != "" && tmdbId != "N/A") &&
+                        (fileHealthIsBad || streamFab != "Y" || resolutionValue < 1080 || fileType != "mkv"))
                     {
                         filteredData.Add(row);
                     }
@@ -10827,7 +10869,7 @@ namespace SheetsQuickstart
 
             DisplayMessage("data", $"Of the {data.Count} rows found", 1);
             DisplayMessage("data", $"{fullRowCount} rows have been identified as rows with actual data.", 1);
-            DisplayMessage("data", $"{filteredData.Count} of those rows have been identified as movies that need to be upgraded to 1080p.", 1);
+            DisplayMessage("data", $"{filteredData.Count} of those rows need possible record sources checked.", 1);
             DisplayMessage("info", "We will now step through them and check for streaming providers.", 2);
 
             foreach (var filteredRow in filteredData)
@@ -10839,6 +10881,7 @@ namespace SheetsQuickstart
                 string imdbTitle = filteredRow[Convert.ToInt16(sheetVariables["IMDB Title"])].ToString();
                 string recordedSource = filteredRow[Convert.ToInt16(sheetVariables["Recorded Source"])].ToString();
                 string fileType = filteredRow[Convert.ToInt16(sheetVariables["File Type"])].ToString();
+                string fileHealth = GetSheetCell(filteredRow, sheetVariables, "File Health");
 
                 DisplayMessage("default", $"{currentCheckRow} of {filteredData.Count} | ", 0);
                 DisplayMessage("log", "Checking for: ", 0);
@@ -10910,6 +10953,7 @@ namespace SheetsQuickstart
 
                         var streamFabEqualsR = string.Equals(streamFab, "R", StringComparison.OrdinalIgnoreCase);
                         var fileTypeNotEqualMkv = !string.Equals(fileType, "mkv", StringComparison.OrdinalIgnoreCase);
+                        var fileHealthIsBad = string.Equals(fileHealth.Trim(), "Bad", StringComparison.OrdinalIgnoreCase);
                         var disneyOrHulu = new[] { "Disney+", "Disney Plus", "Hulu" };
 
                         if (flatrateResponse != null)
@@ -10926,7 +10970,7 @@ namespace SheetsQuickstart
                                     string.Equals(providerName, recordedSource, StringComparison.OrdinalIgnoreCase) ||
                                     sameProviderGroup;
 
-                                if ((!shouldSkipBecauseSameSource || streamFabEqualsR || fileTypeNotEqualMkv) &&
+                                if ((!shouldSkipBecauseSameSource || streamFabEqualsR || fileTypeNotEqualMkv || fileHealthIsBad) &&
                                     includeProviders.Contains(providerName))
                                 {
                                     providers.Add(providerName);
@@ -10948,7 +10992,7 @@ namespace SheetsQuickstart
                                     string.Equals(providerName, recordedSource, StringComparison.OrdinalIgnoreCase) ||
                                     sameProviderGroup;
 
-                                if ((!shouldSkipBecauseSameSource || streamFabEqualsR || fileTypeNotEqualMkv) &&
+                                if ((!shouldSkipBecauseSameSource || streamFabEqualsR || fileTypeNotEqualMkv || fileHealthIsBad) &&
                                     includeProviders.Contains(providerName))
                                 {
                                     providers.Add(providerName);

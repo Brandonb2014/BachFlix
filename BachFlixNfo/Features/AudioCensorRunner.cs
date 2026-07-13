@@ -21,7 +21,55 @@ namespace BachFlixNfo.Features
             if (string.IsNullOrWhiteSpace(inputPath))
                 return;
 
-            RunAutomatic(inputPath, log);
+            RunForInputPath(inputPath, log);
+        }
+
+        public static void RunForInputPath(string inputPath, Action<string, string, int> log)
+        {
+            string cleanInput = CleanConsolePath(inputPath);
+            if (string.IsNullOrWhiteSpace(cleanInput))
+                return;
+
+            if (File.Exists(cleanInput))
+            {
+                if (!IsSupportedVideoFile(cleanInput))
+                {
+                    Write(log, "error", "Unsupported video file for this workflow: " + cleanInput + ". Current clean muxing support is MKV-only.", 1);
+                    return;
+                }
+
+                if (IsCleanOutputFile(cleanInput))
+                {
+                    Write(log, "warning", "Skipping an existing clean output file: " + cleanInput, 1);
+                    return;
+                }
+
+                string mkvPath = Path.GetFullPath(cleanInput);
+                string outputPath = new FfmpegMuxService().BuildCleanOutputPath(mkvPath);
+                if (File.Exists(outputPath))
+                {
+                    Write(log, "warning", "Skipping because the clean output already exists: " + outputPath, 2);
+                    return;
+                }
+
+                string dictionaryPath = ResolveDictionaryPath(log, mkvPath, new List<string> { mkvPath });
+                if (string.IsNullOrWhiteSpace(dictionaryPath))
+                    return;
+
+                Write(log, "info", "Single-file review mode is on. The scan report will be shown before FFmpeg creates the clean MKV.", 1);
+                Write(log, "info", "Using profanity dictionary text file:", 1);
+                Write(log, "data", dictionaryPath, 1);
+                RunReviewedSingleMkv(mkvPath, dictionaryPath, log);
+                return;
+            }
+
+            if (Directory.Exists(cleanInput))
+            {
+                RunAutomatic(cleanInput, log);
+                return;
+            }
+
+            Write(log, "error", "Input path was not found: " + cleanInput, 1);
         }
 
         public static AudioCensorBatchSummary RunAutomatic(string inputPath, Action<string, string, int> log)
@@ -96,6 +144,71 @@ namespace BachFlixNfo.Features
             string finalType = batch.FailedFiles == 0 ? "success" : "warning";
             Write(log, finalType, "Audio censor autopilot complete. Cleaned " + batch.CleanedFiles + " of " + batch.TotalFiles + " file(s); skipped " + batch.SkippedFiles + "; failed " + batch.FailedFiles + ".", 2);
             return batch;
+        }
+
+        private static AudioCensorScanSummary RunReviewedSingleMkv(string mkvPath, string dictionaryPath, Action<string, string, int> log)
+        {
+            var commandLog = new List<string>();
+            AudioCensorScanSummary summary;
+
+            try
+            {
+                summary = RunScan(new AudioCensorScanOptions
+                {
+                    MkvPath = mkvPath,
+                    ProfanityDictionaryPath = dictionaryPath,
+                    DetectExternalTools = true,
+                    PromptForMissingEnglishAudio = true,
+                    UseAutomaticAudioTrackFallback = false,
+                    Log = log,
+                    CommandLog = commandLog
+                });
+            }
+            catch (Exception ex)
+            {
+                Write(log, "error", "Audio censor scan failed.", 1);
+                Write(log, "harderror", ex.Message, 2);
+                return null;
+            }
+
+            List<TranscriptProfanityHit> reviewHits = BuildAudioMuteReviewHits(summary, log);
+            summary.ProposedAudioMuteHits = reviewHits;
+            WritePreReviewSummary(summary, reviewHits, log);
+            summary.ApprovedTranscriptHits = ReviewAudioMuteHits(reviewHits, summary.SelectedAudioTracks, log);
+            summary.CensorPlan = BuildCensorPlan(summary, commandLog, log);
+
+            WriteComparisonReport(summary, log);
+            WriteSummary(summary, log);
+            WriteLogFile(summary, commandLog, log);
+
+            if (summary.CensorPlan != null && summary.CensorPlan.MuxPlanBuilt)
+            {
+                Write(log, "question", "Create the _Clean MKV now? Type y to run FFmpeg, or press Enter to leave the report and plan only:", 1);
+                string response = (Console.ReadLine() ?? "").Trim();
+                if (response.Equals("y", StringComparison.OrdinalIgnoreCase) || response.Equals("yes", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        new FfmpegMuxService().MuxCensoredMedia(summary.CensorPlan.MuxPlan, log, commandLog);
+                        Write(log, "success", "Created clean MKV: " + summary.CensorPlan.OutputMkvPath, 2);
+                    }
+                    catch (Exception ex)
+                    {
+                        Write(log, "error", "FFmpeg mux failed.", 1);
+                        Write(log, "harderror", ex.Message, 2);
+                    }
+                }
+                else
+                {
+                    Write(log, "warning", "No clean MKV was created. The report and FFmpeg plan were left for review.", 2);
+                }
+            }
+            else
+            {
+                Write(log, "warning", "No clean MKV was created for this file because no mux plan was available.", 2);
+            }
+
+            return summary;
         }
 
         private static AudioCensorScanSummary RunAutomaticForSingleMkv(string mkvPath, string dictionaryPath, Action<string, string, int> log)

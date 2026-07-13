@@ -37,6 +37,8 @@ namespace BachFlixNfo.Features
             public string QuickCreateHeaderName { get; set; } = "Quick Create";
             public string QuickCreateValue { get; set; } = "X";
             public string StatusReportFilterValue { get; set; } = "n";
+            public int PlexRequestTimeoutSeconds { get; set; } = 300;
+            public int PlexGetMaxAttempts { get; set; } = 3;
 
             public bool OverwriteExistingRatingKeys { get; set; } = false;
             public bool MarkQuickCreateForWrittenRatingKeys { get; set; } = false;
@@ -165,7 +167,7 @@ namespace BachFlixNfo.Features
 
             log?.Invoke("info", "Step 2/4: Pulling Plex Movies and building ID -> ratingKey index...", 2);
 
-            var plexIndex = await BuildPlexMovieIdIndexAsync(opt.PlexBaseUrl, opt.PlexToken, opt.MoviesSectionId);
+            var plexIndex = await BuildPlexMovieIdIndexAsync(opt, log).ConfigureAwait(false);
 
             log?.Invoke("data", $"Plex index: imdb={plexIndex.ImdbToRatingKey.Count}, tmdb={plexIndex.TmdbToRatingKey.Count}", 3);
 
@@ -383,19 +385,29 @@ namespace BachFlixNfo.Features
             public string TmdbId { get; set; }
         }
 
-        private static async Task<PlexIndex> BuildPlexMovieIdIndexAsync(string plexBaseUrl, string token, int moviesSectionId)
+        private static async Task<PlexIndex> BuildPlexMovieIdIndexAsync(
+            Options opt,
+            Action<string, string, int> log)
         {
             var idx = new PlexIndex();
 
             using (var http = new HttpClient())
             {
+                int timeoutSeconds = Math.Max(30, opt.PlexRequestTimeoutSeconds);
+                http.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+
                 // Ask Plex to include GUIDs in the section listing if supported.
                 // If Plex doesn't include Guid nodes, we'll still have ratingKeys and can fall back later (not implemented here).
                 string url =
-                    $"{plexBaseUrl.TrimEnd('/')}/library/sections/{moviesSectionId}/all" +
-                    $"?type=1&includeGuids=1&X-Plex-Token={Uri.EscapeDataString(token)}";
+                    $"{opt.PlexBaseUrl.TrimEnd('/')}/library/sections/{opt.MoviesSectionId}/all" +
+                    $"?type=1&includeGuids=1&X-Plex-Token={Uri.EscapeDataString(opt.PlexToken)}";
 
-                string xml = await http.GetStringAsync(url).ConfigureAwait(false);
+                string xml = await GetPlexStringWithRetryAsync(
+                    http,
+                    url,
+                    Math.Max(1, opt.PlexGetMaxAttempts),
+                    "Plex movie-library listing",
+                    log).ConfigureAwait(false);
 
                 var doc = XDocument.Parse(xml);
 
@@ -465,7 +477,7 @@ namespace BachFlixNfo.Features
                         {
                             try
                             {
-                                string metaUrl = $"{plexBaseUrl.TrimEnd('/')}/library/metadata/{rk}?X-Plex-Token={Uri.EscapeDataString(token)}";
+                                string metaUrl = $"{opt.PlexBaseUrl.TrimEnd('/')}/library/metadata/{rk}?X-Plex-Token={Uri.EscapeDataString(opt.PlexToken)}";
                                 string metaXml = await http.GetStringAsync(metaUrl).ConfigureAwait(false);
                                 var metaDoc = XDocument.Parse(metaXml);
 
@@ -505,6 +517,45 @@ namespace BachFlixNfo.Features
             }
 
             return idx;
+        }
+
+        private static async Task<string> GetPlexStringWithRetryAsync(
+            HttpClient http,
+            string url,
+            int maxAttempts,
+            string operation,
+            Action<string, string, int> log)
+        {
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    return await http.GetStringAsync(url).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (
+                    attempt < maxAttempts &&
+                    (ex is TaskCanceledException || ex is HttpRequestException))
+                {
+                    int delaySeconds = (int)Math.Pow(2, attempt - 1);
+                    log?.Invoke(
+                        "warning",
+                        $"{operation} failed; retrying in {delaySeconds}s (attempt {attempt + 1}/{maxAttempts}). {ex.Message}",
+                        3);
+                    await Task.Delay(TimeSpan.FromSeconds(delaySeconds)).ConfigureAwait(false);
+                }
+                catch (TaskCanceledException ex)
+                {
+                    throw new Exception(
+                        $"{operation} timed out after {http.Timeout.TotalSeconds:0}s on attempt {attempt}/{maxAttempts}. No Rating Keys, Quick Create marks, Plex metadata, or Plex Sync Hash values were changed.",
+                        ex);
+                }
+                catch (HttpRequestException ex)
+                {
+                    throw new Exception(
+                        $"{operation} failed after {attempt}/{maxAttempts} attempt(s): {ex.Message}. No Rating Keys, Quick Create marks, Plex metadata, or Plex Sync Hash values were changed.",
+                        ex);
+                }
+            }
         }
 
         private static IList<IList<object>> GetValues(SheetsService sheetsService, string spreadsheetId, string range)

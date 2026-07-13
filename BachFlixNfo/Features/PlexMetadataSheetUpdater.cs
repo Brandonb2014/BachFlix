@@ -1,8 +1,10 @@
 using Google.Apis.Sheets.v4;
+using Google.Apis.Sheets.v4.Data;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -26,6 +28,7 @@ namespace BachFlixNfo.Features
             public int MoviesDataStartRow { get; set; } = 3;
             public string StatusFilterValue { get; set; } = "n";
             public int PlexRequestTimeoutSeconds { get; set; } = 45;
+            public int PlexGetMaxAttempts { get; set; } = 3;
 
             public bool LockEditedFields { get; set; } = true;
             public bool ReplaceLabelsFromTags { get; set; } = true;
@@ -44,6 +47,7 @@ namespace BachFlixNfo.Features
             public int RowsSkippedStatus { get; set; }
             public int RowsSkippedMissingRatingKey { get; set; }
             public int RowsUnchanged { get; set; }
+            public int RowsSkippedMatchingHash { get; set; }
             public int RowsUpdated { get; set; }
             public int RowsFailed { get; set; }
             public int LabelsChanged { get; set; }
@@ -96,7 +100,9 @@ namespace BachFlixNfo.Features
                 : -1;
             int sortTitleCol = headers.GetRequiredIndex("Sort Title", "SortTitle", "Plex Sort Title");
             int altPlotCol = headers.GetRequiredIndex("Alt Plot", "Alternate Plot", "Plex Plot", "Plex Summary");
+            int recordedSourceCol = headers.GetRequiredIndex("Recorded Source");
             int contentRatingCol = headers.GetRequiredIndex("Content Rating", "Plex Content Rating");
+            int plexSyncHashCol = headers.GetRequiredIndex("Plex Sync Hash");
             int titleCol = headers.FindIndex("IMDB Title", "Clean Title", "Title", "Auto Title");
 
             if (tagsCol < 0 && nfoBodyCol < 0)
@@ -142,8 +148,11 @@ namespace BachFlixNfo.Features
                     Title = GetCell(row.Values, titleCol),
                     Tags = BuildDesiredLabels(row.Values, tagsCol, nfoBodyCol, summary),
                     SortTitle = GetCell(row.Values, sortTitleCol),
-                    Plot = GetCell(row.Values, altPlotCol),
-                    ContentRating = GetCell(row.Values, contentRatingCol)
+                    Plot = BuildDesiredPlot(
+                        GetCell(row.Values, altPlotCol),
+                        GetCell(row.Values, recordedSourceCol)),
+                    ContentRating = GetCell(row.Values, contentRatingCol),
+                    SavedPlexSyncHash = GetCell(row.Values, plexSyncHashCol)
                 });
             }
 
@@ -159,17 +168,26 @@ namespace BachFlixNfo.Features
             using (var http = new HttpClient())
             {
                 http.Timeout = requestTimeout;
+                var hashUpdates = new List<HashSheetUpdate>();
 
                 foreach (var row in rowsToProcess)
                 {
+                    row.DesiredPlexSyncHash = ComputePlexSyncHash(row, options);
+                    if (string.Equals(row.SavedPlexSyncHash, row.DesiredPlexSyncHash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        summary.RowsSkippedMatchingHash++;
+                        continue;
+                    }
+
                     try
                     {
-                        var current = await FetchPlexMovieAsync(http, options, row.RatingKey).ConfigureAwait(false);
+                        var current = await FetchPlexMovieWithRetryAsync(http, options, row.RatingKey, log).ConfigureAwait(false);
                         var changes = DetermineChanges(row, current, options);
 
                         if (!changes.HasAnyChange)
                         {
                             summary.RowsUnchanged++;
+                            hashUpdates.Add(new HashSheetUpdate(row.SheetRowNumber, row.DesiredPlexSyncHash));
                             continue;
                         }
 
@@ -180,6 +198,7 @@ namespace BachFlixNfo.Features
                         if (changes.SortTitleChanged) summary.SortTitlesChanged++;
                         if (changes.PlotChanged) summary.PlotsChanged++;
                         if (changes.ContentRatingChanged) summary.ContentRatingsChanged++;
+                        hashUpdates.Add(new HashSheetUpdate(row.SheetRowNumber, row.DesiredPlexSyncHash));
 
                         string title = string.IsNullOrWhiteSpace(row.Title) ? current.Title : row.Title;
                         log?.Invoke("success", $"Plex updated: {title} (Movies row {row.SheetRowNumber}, ratingKey {row.RatingKey}; changed {DescribeChanges(row, changes)})", 3);
@@ -191,11 +210,13 @@ namespace BachFlixNfo.Features
                         log?.Invoke("error", $"Plex update failed for {title} (Movies row {row.SheetRowNumber}, ratingKey {row.RatingKey}): {DescribeException(ex)}", 3);
                     }
                 }
+
+                WritePlexSyncHashes(sheetsService, spreadsheetId, options, plexSyncHashCol, hashUpdates, log);
             }
 
             log?.Invoke(
                 "success",
-                $"Plex metadata sync complete. ActiveStatus={options.StatusFilterValue}, Eligible={summary.RowsEligible}, Updated={summary.RowsUpdated}, Unchanged={summary.RowsUnchanged}, Failed={summary.RowsFailed}, MissingRatingKey={summary.RowsSkippedMissingRatingKey}, SkippedOtherStatus={summary.RowsSkippedStatus}. Changed: Labels={summary.LabelsChanged}, SortTitle={summary.SortTitlesChanged}, AltPlot={summary.PlotsChanged}, ContentRating={summary.ContentRatingsChanged}. RowsWithNfoBodyTags={summary.RowsWithNfoBodyTags}.",
+                $"Plex metadata sync complete. ActiveStatus={options.StatusFilterValue}, Eligible={summary.RowsEligible}, HashMatched={summary.RowsSkippedMatchingHash}, Updated={summary.RowsUpdated}, VerifiedUnchanged={summary.RowsUnchanged}, Failed={summary.RowsFailed}, MissingRatingKey={summary.RowsSkippedMissingRatingKey}, SkippedOtherStatus={summary.RowsSkippedStatus}. Changed: Labels={summary.LabelsChanged}, SortTitle={summary.SortTitlesChanged}, AltPlot={summary.PlotsChanged}, ContentRating={summary.ContentRatingsChanged}. RowsWithNfoBodyTags={summary.RowsWithNfoBodyTags}.",
                 2);
 
             if (summary.RowsSkippedMissingRatingKey > 0)
@@ -302,6 +323,74 @@ namespace BachFlixNfo.Features
                     await PutPlexEditAsync(http, options, removeParams).ConfigureAwait(false);
                 }
             }
+        }
+
+        private static string ComputePlexSyncHash(MovieSheetRow row, Options options)
+        {
+            var canonicalTags = (row.Tags ?? new List<string>())
+                .Select(tag => NormalizeText(tag).ToLowerInvariant())
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(tag => tag, StringComparer.Ordinal);
+
+            var fields = new[]
+            {
+                "plex-sync-v1",
+                NormalizeRatingKey(row.RatingKey),
+                options.ReplaceLabelsFromTags ? "replace-labels" : "keep-labels",
+                string.Join("\n", canonicalTags),
+                options.ClearEmptySortTitle ? "clear-sort" : "keep-empty-sort",
+                NormalizeText(row.SortTitle),
+                options.ClearEmptyPlot ? "clear-plot" : "keep-empty-plot",
+                NormalizeText(row.Plot),
+                options.ClearEmptyContentRating ? "clear-rating" : "keep-empty-rating",
+                NormalizeText(row.ContentRating)
+            };
+
+            string payload = string.Join("|", fields.Select(value =>
+            {
+                value = value ?? "";
+                return value.Length.ToString() + ":" + value;
+            }));
+
+            using (var sha256 = SHA256.Create())
+            {
+                byte[] digest = sha256.ComputeHash(Encoding.UTF8.GetBytes(payload));
+                return "v1:" + BitConverter.ToString(digest).Replace("-", "").ToLowerInvariant();
+            }
+        }
+
+        private static async Task<PlexMovieMetadata> FetchPlexMovieWithRetryAsync(
+            HttpClient http,
+            Options options,
+            string ratingKey,
+            Action<string, string, int> log)
+        {
+            int maxAttempts = Math.Max(1, options.PlexGetMaxAttempts);
+
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    return await FetchPlexMovieAsync(http, options, ratingKey).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (attempt < maxAttempts && IsTransientPlexGetFailure(ex))
+                {
+                    int delaySeconds = (int)Math.Pow(2, attempt - 1);
+                    log?.Invoke("warning", $"Plex metadata GET failed for ratingKey {ratingKey}; retrying in {delaySeconds}s (attempt {attempt + 1}/{maxAttempts}). {ex.Message}", 3);
+                    await Task.Delay(TimeSpan.FromSeconds(delaySeconds)).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private static bool IsTransientPlexGetFailure(Exception ex)
+        {
+            for (Exception current = ex; current != null; current = current.InnerException)
+            {
+                if (current is TaskCanceledException || current is HttpRequestException)
+                    return true;
+            }
+
+            return false;
         }
 
         private static async Task<PlexMovieMetadata> FetchPlexMovieAsync(HttpClient http, Options options, string ratingKey)
@@ -484,6 +573,64 @@ namespace BachFlixNfo.Features
             return "?" + string.Join("&", parts);
         }
 
+        private static void WritePlexSyncHashes(
+            SheetsService sheetsService,
+            string spreadsheetId,
+            Options options,
+            int hashColumnIndex,
+            List<HashSheetUpdate> updates,
+            Action<string, string, int> log)
+        {
+            if (updates == null || updates.Count == 0)
+                return;
+
+            const int batchSize = 500;
+            string columnLetter = ColumnIndexToLetter(hashColumnIndex);
+
+            for (int offset = 0; offset < updates.Count; offset += batchSize)
+            {
+                var data = updates
+                    .Skip(offset)
+                    .Take(batchSize)
+                    .Select(update => new ValueRange
+                    {
+                        Range = A1(options.MoviesSheetName, columnLetter + update.SheetRowNumber),
+                        Values = new List<IList<object>>
+                        {
+                            new List<object> { update.Hash }
+                        }
+                    })
+                    .ToList();
+
+                var body = new BatchUpdateValuesRequest
+                {
+                    ValueInputOption = "RAW",
+                    Data = data
+                };
+
+                sheetsService.Spreadsheets.Values.BatchUpdate(body, spreadsheetId).Execute();
+            }
+
+            log?.Invoke("data", $"Saved {updates.Count} Plex Sync Hash value(s) to the Movies sheet.", 3);
+        }
+
+        private static string ColumnIndexToLetter(int zeroBasedIndex)
+        {
+            if (zeroBasedIndex < 0)
+                throw new ArgumentOutOfRangeException(nameof(zeroBasedIndex));
+
+            int value = zeroBasedIndex + 1;
+            var letters = new StringBuilder();
+            while (value > 0)
+            {
+                value--;
+                letters.Insert(0, (char)('A' + value % 26));
+                value /= 26;
+            }
+
+            return letters.ToString();
+        }
+
         private static SheetData ReadMoviesSheet(SheetsService sheetsService, string spreadsheetId, Options options)
         {
             var request = sheetsService.Spreadsheets.Values.Get(
@@ -653,6 +800,31 @@ namespace BachFlixNfo.Features
             return string.Join(", ", parts);
         }
 
+        private static string BuildDesiredPlot(string altPlot, string recordedSource)
+        {
+            string plot = NormalizeText(altPlot);
+            plot = Regex.Replace(
+                    plot,
+                    @"(?:^|(?:\n[ \t]*)+)Recorded from[ \t]+[^\n]*\s*$",
+                    "",
+                    RegexOptions.IgnoreCase)
+                .Trim();
+
+            string source = Regex.Replace(
+                    NormalizeText(recordedSource),
+                    @"\s+",
+                    " ")
+                .Trim();
+
+            if (string.IsNullOrWhiteSpace(source))
+                return plot;
+
+            string recordedFrom = "Recorded from " + source;
+            return string.IsNullOrWhiteSpace(plot)
+                ? recordedFrom
+                : plot + "\n\n" + recordedFrom;
+        }
+
         private static string NormalizeText(string value)
         {
             return (value ?? "")
@@ -742,6 +914,20 @@ namespace BachFlixNfo.Features
             public string SortTitle { get; set; }
             public string Plot { get; set; }
             public string ContentRating { get; set; }
+            public string SavedPlexSyncHash { get; set; }
+            public string DesiredPlexSyncHash { get; set; }
+        }
+
+        private class HashSheetUpdate
+        {
+            public HashSheetUpdate(int sheetRowNumber, string hash)
+            {
+                SheetRowNumber = sheetRowNumber;
+                Hash = hash;
+            }
+
+            public int SheetRowNumber { get; }
+            public string Hash { get; }
         }
 
         private class PlexMovieMetadata
