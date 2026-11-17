@@ -11,3 +11,9 @@
 # Build outputs
 [Bb]in/
 [Oo]bj/
+# Google OAuth token cache
+token.json/
+
+# Missing-episode preview/update/failure outputs
+missing-episodes-*.json
+missing-episodes-*.csv

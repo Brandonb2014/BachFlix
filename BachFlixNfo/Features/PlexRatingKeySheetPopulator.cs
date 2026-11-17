@@ -102,7 +102,7 @@ namespace BachFlixNfo.Features
             int imdbIdx = FindHeaderIndex(headers, opt.ImdbHeaderName);
             int plexKeyIdx = FindHeaderIndex(headers, opt.PlexRatingKeyHeaderName);
             int statusIdx = FindHeaderIndex(headers, opt.StatusHeaderName);
-            int titleIdx = FindFirstHeaderIndex(headers, opt.TitleHeaderName, "Clean Title", "Title", "Auto Title");
+            int titleIdx = FindFirstHeaderIndex(headers, opt.TitleHeaderName, "Clean Title", "Title");
             int quickCreateIdx = FindHeaderIndex(headers, opt.QuickCreateHeaderName);
 
             string tmdbCol = tmdbIdx >= 0 ? IndexToColumnLetter(tmdbIdx) : opt.TmdbIdColumnLetterFallback;

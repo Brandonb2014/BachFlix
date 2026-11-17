@@ -19,7 +19,6 @@ namespace BachFlixNfo.Features
         private const string HeaderCleanTitle = "Clean Title";
         private const string HeaderImdbTitle = "IMDB Title";
         private const string HeaderImdbId = "IMDB ID";
-        private const string HeaderAutoTitle = "Auto Title";
         private const string HeaderStatus = "Status";
 
         private static readonly string[] VideoExtensions =
@@ -64,7 +63,6 @@ namespace BachFlixNfo.Features
             int cleanTitleCol = FindColumnIndex(sheet.Headers, HeaderCleanTitle);
             int imdbTitleCol = FindColumnIndex(sheet.Headers, HeaderImdbTitle);
             int imdbIdCol = FindColumnIndex(sheet.Headers, HeaderImdbId);
-            int autoTitleCol = FindColumnIndex(sheet.Headers, HeaderAutoTitle);
             int statusCol = FindColumnIndex(sheet.Headers, HeaderStatus);
 
             if (directoryCol < 0)
@@ -73,9 +71,9 @@ namespace BachFlixNfo.Features
                 return;
             }
 
-            if (cleanTitleCol < 0 && imdbTitleCol < 0 && autoTitleCol < 0)
+            if (cleanTitleCol < 0 && imdbTitleCol < 0)
             {
-                log?.Invoke("error", "Movies sheet needs Clean Title, IMDB Title, or Auto Title for filename matching.", 2);
+                log?.Invoke("error", "Movies sheet needs Clean Title or IMDB Title for filename matching.", 2);
                 return;
             }
 
@@ -100,7 +98,6 @@ namespace BachFlixNfo.Features
                 cleanTitleCol,
                 imdbTitleCol,
                 imdbIdCol,
-                autoTitleCol,
                 statusCol,
                 rootFilter,
                 activeOnly,
@@ -153,7 +150,6 @@ namespace BachFlixNfo.Features
             int cleanTitleCol,
             int imdbTitleCol,
             int imdbIdCol,
-            int autoTitleCol,
             int statusCol,
             string rootFilter,
             bool activeOnly,
@@ -167,7 +163,6 @@ namespace BachFlixNfo.Features
                 directoryCol,
                 cleanTitleCol,
                 imdbTitleCol,
-                autoTitleCol,
                 statusCol,
                 rootFilter,
                 activeOnly);
@@ -190,8 +185,7 @@ namespace BachFlixNfo.Features
                 string directory = GetCell(row.Values, directoryCol);
                 string sheetTitle = FirstNonBlank(
                     GetCell(row.Values, cleanTitleCol),
-                    GetCell(row.Values, imdbTitleCol),
-                    GetCell(row.Values, autoTitleCol));
+                    GetCell(row.Values, imdbTitleCol));
                 string imdbId = GetCell(row.Values, imdbIdCol);
 
                 if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(sheetTitle))
@@ -322,7 +316,6 @@ namespace BachFlixNfo.Features
             int directoryCol,
             int cleanTitleCol,
             int imdbTitleCol,
-            int autoTitleCol,
             int statusCol,
             string rootFilter,
             bool activeOnly)
@@ -347,8 +340,7 @@ namespace BachFlixNfo.Features
 
                 string sheetTitle = FirstNonBlank(
                     GetCell(row.Values, cleanTitleCol),
-                    GetCell(row.Values, imdbTitleCol),
-                    GetCell(row.Values, autoTitleCol));
+                    GetCell(row.Values, imdbTitleCol));
 
                 string key = NormalizeTitleKeyForDuplicateCheck(sheetTitle);
                 if (string.IsNullOrWhiteSpace(key))

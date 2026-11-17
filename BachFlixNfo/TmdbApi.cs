@@ -108,6 +108,26 @@ namespace TmdbApiCall
         }
 
         /// <summary>
+        /// Get a movie's regional release dates and content certifications.
+        /// </summary>
+        /// <param name="TmdbId">The TMDB movie ID.</param>
+        public static dynamic MoviesGetReleaseDates(string TmdbId)
+        {
+            Thread.Sleep(250);
+            string strRestClient = "https://api.themoviedb.org/3/movie/" + TmdbId + "/release_dates?api_key=" + TmdbApiKey;
+
+            RestClient client = new RestClient(strRestClient);
+            RestRequest request = new RestRequest(Method.GET);
+            IRestResponse response = client.Execute(request);
+            if (response.IsSuccessful)
+            {
+                return JsonConvert.DeserializeObject(response.Content);
+            }
+
+            return "";
+        }
+
+        /// <summary>
         /// Get the TV show watch providers (Streaming services) from a TVDB ID.
         /// </summary>
         /// <param name="TvdbId"></param>

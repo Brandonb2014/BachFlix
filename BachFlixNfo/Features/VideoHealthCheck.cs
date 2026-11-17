@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 
@@ -304,11 +305,12 @@ namespace BachFlixNfo.Features
         public static int RunFfmpegFullScan(string videoPath, out bool hadErrors, out string errors)
         {
             Console.WriteLine("[FFMPEG] FULL SCAN: " + Path.GetFileName(videoPath));
+            double? duration = FfmpegHealthProgress.ReadDuration(videoPath);
 
             var psi = new ProcessStartInfo
             {
                 FileName = "ffmpeg",
-                Arguments = "-v error -i \"" + videoPath + "\" -f null -",
+                Arguments = "-v error -nostdin -nostats -stats_period 1 -progress pipe:1 -i \"" + videoPath + "\" -f null -",
                 UseShellExecute = false,
                 RedirectStandardError = true,
                 RedirectStandardOutput = true,
@@ -330,9 +332,13 @@ namespace BachFlixNfo.Features
                 process.Start();
                 process.BeginErrorReadLine();
 
-                string unusedStdOut = process.StandardOutput.ReadToEnd();
+                var progress = new FfmpegHealthProgress(duration);
+                string line;
+                while ((line = process.StandardOutput.ReadLine()) != null)
+                    progress.ReadLine(line);
 
                 process.WaitForExit();
+                progress.Finish(process.ExitCode == 0);
 
                 errors = errorBuilder.ToString().Trim();
                 hadErrors = !string.IsNullOrWhiteSpace(errors);
@@ -439,6 +445,127 @@ namespace BachFlixNfo.Features
             }
 
             Console.ForegroundColor = original;
+        }
+    }
+
+    // Progress goes to stdout; only stderr participates in health classification.
+    internal sealed class FfmpegHealthProgress
+    {
+        private readonly double? duration;
+        private readonly Stopwatch elapsed = Stopwatch.StartNew();
+        private double position;
+        private double speed;
+        private double lastRender = -10;
+        private bool interactive = !Console.IsOutputRedirected;
+
+        internal FfmpegHealthProgress(double? duration)
+        {
+            this.duration = duration;
+            Render(false);
+        }
+
+        internal void ReadLine(string line)
+        {
+            int separator = line.IndexOf('=');
+            if (separator < 0) return;
+            string key = line.Substring(0, separator);
+            string value = line.Substring(separator + 1);
+            double parsed;
+            if ((key == "out_time_us" || key == "out_time_ms") &&
+                double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed) && parsed >= 0)
+                position = Math.Max(position, parsed / 1000000.0);
+            else if (key == "speed" && double.TryParse(value.TrimEnd('x'), NumberStyles.Float, CultureInfo.InvariantCulture, out parsed) && parsed > 0)
+                speed = parsed;
+            else if (key == "progress") Render(false);
+        }
+
+        internal void Finish(bool succeeded)
+        {
+            string text = succeeded ? "[FFMPEG] Scan finished | Elapsed: " + Clock(elapsed.Elapsed.TotalSeconds)
+                : "[FFMPEG] Scan stopped with errors | Elapsed: " + Clock(elapsed.Elapsed.TotalSeconds);
+            if (succeeded && duration.HasValue) text = "[FFMPEG] Scan finished: 100% | Elapsed: " + Clock(elapsed.Elapsed.TotalSeconds);
+            Write(text, succeeded ? ConsoleColor.Green : ConsoleColor.Red);
+            if (interactive) Console.WriteLine();
+        }
+
+        internal string CurrentText { get { return Format(position, duration, speed, elapsed.Elapsed.TotalSeconds); } }
+
+        private void Render(bool force)
+        {
+            double seconds = elapsed.Elapsed.TotalSeconds;
+            if (!force && seconds - lastRender < (interactive ? 1 : 10)) return;
+            lastRender = seconds;
+            Write(CurrentText, ConsoleColor.Cyan);
+        }
+
+        internal static string Format(double position, double? duration, double speed, double elapsed)
+        {
+            string percent = duration.HasValue && duration.Value > 0
+                ? Math.Min(99.9, 100 * position / duration.Value).ToString("0.0", CultureInfo.InvariantCulture) + "%"
+                : "duration unknown";
+            string remaining = duration.HasValue && speed > 0
+                ? "~" + Clock(Math.Max(0, duration.Value - position) / speed) : "calculating...";
+            return "[FFMPEG] Scan: " + percent + " | Checked: " + Clock(position) +
+                (duration.HasValue ? " / " + Clock(duration.Value) : "") +
+                " | Speed: " + (speed > 0 ? speed.ToString("0.0", CultureInfo.InvariantCulture) + "x" : "calculating...") +
+                " | Elapsed: " + Clock(elapsed) + " | Remaining: " + remaining;
+        }
+
+        private void Write(string text, ConsoleColor color)
+        {
+            if (!interactive) { Console.WriteLine(text); return; }
+            ConsoleColor original = Console.ForegroundColor;
+            try
+            {
+                int width = Math.Max(1, Console.BufferWidth - 1);
+                if (text.Length > width) text = text.Substring(0, width);
+                Console.ForegroundColor = color;
+                Console.Write("\r" + text.PadRight(width));
+            }
+            catch (IOException)
+            {
+                interactive = false;
+                Console.WriteLine(text);
+            }
+            finally { Console.ForegroundColor = original; }
+        }
+
+        private static string Clock(double seconds)
+        {
+            var time = TimeSpan.FromSeconds(Math.Max(0, seconds));
+            return ((int)time.TotalHours).ToString("00") + ":" + time.Minutes.ToString("00") + ":" + time.Seconds.ToString("00");
+        }
+
+        internal static double? ReadDuration(string videoPath)
+        {
+            try
+            {
+                using (var probe = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "ffprobe",
+                        Arguments = "-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"" + videoPath + "\"",
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    }
+                })
+                {
+                    probe.Start();
+                    var output = probe.StandardOutput.ReadToEndAsync();
+                    var error = probe.StandardError.ReadToEndAsync();
+                    if (!probe.WaitForExit(10000)) { probe.Kill(); probe.WaitForExit(); return null; }
+                    double seconds;
+                    if (probe.ExitCode == 0 && double.TryParse(output.Result.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out seconds)
+                        && seconds > 0 && !double.IsInfinity(seconds) && !double.IsNaN(seconds)) return seconds;
+                }
+            }
+            catch (System.ComponentModel.Win32Exception) { }
+            catch (IOException) { }
+            catch (InvalidOperationException) { }
+            return null;
         }
     }
 }

@@ -37,3 +37,95 @@ Then it grows from there. I now have it convert my movies for me too. Once I rip
 And then I got an API account with themoviedb.org and now it gathers all the IMDB ID’s from the Google Sheet to send them to themoviedb API to get the movie plot and then plug it back into my Google Sheet.
 Future plans. At this time, the next feature I hope to add is that it will go into my Plex account and download the movie posters and backgrounds in with the movie folder.
 Then who knows from there.
+
+## TheTVDB v4
+
+TV media updates are available as **61 - Update TV Show Resolution and Format
+(Smart Scan)** under DB Sheet, with **61f** for a force rescan. See
+[cache behavior, safeguards, usage and tests](TV_MEDIA_SMART_SCAN.md).
+
+Missing-episode tracking is available as **28m — Tally Missing Episodes (preview
+only)** under DB Sheet. **28mu** is the explicit **LIVE UPDATE** option. The
+`--missing-episodes-preview` command remains read-only; the separate
+`--missing-episodes-update` command writes verified changed counts in bounded
+batches, preserving failed/conflicted rows. Both support a show limit or
+`--row <DB-row>` for a small test.
+See [setup, verification rules, tests and live-write steps](MISSING_EPISODES.md).
+
+Option **55m** scans the recording PCs' output shares directly:
+`\\RAPH\RaphOutput`, `\\LEO\LeoOutput`, `\\MIKEY\MikeyOutput`, and
+`\\DONNY\DonnyOutput`. The Downloads `checked` and QUADPLEX `Other\Output`
+sources are also scanned as before. Use `<output>\<provider>\<title>` (or loose
+movie files under the provider); the old `<output>\Ready\<provider>` layout is
+still supported. Movie renaming, sidecars, destination merging, and subsequent
+sheet/library processing follow the existing workflow.
+
+Movie matching tries exact titles first, then treats standalone `and` / `&`
+and a leading `The ` as equivalent on either title. These variations retain the
+year before falling back to the existing title-only matching. Multiple equally
+good candidates require a choice; the selected sheet Clean Title remains the
+final filename. Run `tests/Run-MovieTitleMatcherTests.ps1` for offline checks.
+
+Provider aliases live in `BachFlixNfo/Features/OutputMediaFolders.cs`.
+`Amazon` maps to `Prime` for working-area paths and subsequent sheet updates;
+matching ignores case. Other provider names pass through unchanged. Add further
+aliases there when StreamFab and the sheet use different names.
+
+Put unfinished items inside a folder named **Skip**. Both discovery and cleanup
+ignore `Skip` (case-insensitive), `.sync`, and directory links/junctions. If a
+title contains one of these folders, the entire title stays at the source because
+title moves transfer the whole tree. Empty source folders are removed after the
+move pass, even when there is nothing to move; configured roots and excluded
+folders are preserved. Nonempty folders are never removed by cleanup.
+
+Folder transfers remove each source file after copying (or finding an existing
+destination of the same size), verifying the destination size and confirming the
+source size and modification time have not changed. New files arriving during
+the transfer remain for the next run. Changed or failed files are retained and
+reported while other files continue; cleanup only deletes empty directories.
+
+Offline checks for 55m folder discovery, aliases, protected folders, cleanup,
+and destination merging:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/Run-OutputMediaFoldersTests.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/Run-MediaMoveProgressTests.ps1
+```
+
+TV metadata provided by [TheTVDB](https://thetvdb.com).
+
+Set `TVDB_API_KEY` in your ignored `BachFlixNfo/BachFlixNfo.local.env`
+(or as a process environment variable). See `BachFlixNfo.local.env.example`.
+Use a project API key; no subscriber PIN is needed. The application loads it
+through `LocalEnvironment` and obtains a token only when TVDB is used.
+Tokens stay in memory; no Google Sheets token cell is read or written.
+
+The client uses `https://api4.thetvdb.com/v4` with:
+- `POST /login` (only `apikey` in the JSON body)
+- `GET /search?type=series&query=...` (requires an exact slug match)
+- `GET /series/{id}/extended`
+- `GET /series/{id}/episodes/official?page=0&season=...&episodeNumber=...`
+
+Official episode ordering preserves aired SxxExx numbering, including season 0
+specials; it does not switch to DVD/absolute ordering. Season counts use distinct
+positive official season numbers, excluding specials and alternative orders.
+The compatibility response retains `seriesName`, `firstAired`, `season`, `rating`,
+`status`, `episodeName`, and `overview` for existing sheet workflows. Content
+ratings select USA ratings; absent text becomes an empty string. Missing first-air
+dates leave the sheet Year unchanged. Existing IDs bypass slug search; a changed
+or unresolved slug requires an explicit ID rather than guessing a result.
+
+A 401 permits one fresh login and one retry. Persistent authentication failures,
+missing records, network failures, and API errors are reported without response
+bodies, keys, or tokens. Request timeouts are 30 seconds and redirects are disabled.
+
+Run offline regression tests with Visual Studio C# build tools installed:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/Run-TvdbTests.ps1
+```
+
+The tests use a fake key and transport and never load local credentials or modify
+Sheets. Manual validation should check a known slug, an ID-only row, a regular
+episode and a special, plus the resulting metadata in your normal sheet workflow.
+API reference: https://thetvdb.github.io/v4-api/

@@ -56,7 +56,7 @@ namespace BachFlixNfo.Features
             ValueRange response = getReq.Execute();
             IList<IList<object>> values = response.Values;
 
-            if (values == null || values.Count == 0)
+            if (values == null || values.Count < 2)
             {
                 Console.WriteLine("No rows found in sheet.");
                 return;
@@ -116,6 +116,10 @@ namespace BachFlixNfo.Features
                 colRecordSource
             }.Max();
 
+            int totalMatches = values.Skip(2).Count(row => MatchesScanFilter(row,
+                colFileHealth, colResolution, colStreamFab, colFileType, colDirectory, colCleanTitle));
+            Console.WriteLine("[HEALTH] Movies matching scan filters: {0}", totalMatches);
+
             // Process data rows (start at rowIndex 2 because 1 is header row)
             for (int rowIndex = 2; rowIndex < values.Count; rowIndex++)
             {
@@ -154,6 +158,10 @@ namespace BachFlixNfo.Features
                     continue;
 
                 matchCount++;
+                ConsoleColor previousColor = Console.ForegroundColor;
+                Console.ForegroundColor = ConsoleColor.Blue;
+                Console.WriteLine("[HEALTH] Movie {0} of {1} | Row {2}: {3}", matchCount, totalMatches, rowIndex + 1, cleanTitle);
+                Console.ForegroundColor = previousColor;
 
                 string videoPath = FindVideoFile(directory, cleanTitle, expectedExtension: ".mkv");
                 if (videoPath == null)
@@ -288,6 +296,19 @@ namespace BachFlixNfo.Features
             }
 
             Console.WriteLine("Matched rows (before file existence checks): {0}", matchCount);
+        }
+
+        private static bool MatchesScanFilter(IList<object> row, int health, int resolution,
+            int streamFab, int fileType, int directory, int title)
+        {
+            string type = NormalizeCell(SafeGet(row, fileType));
+            if (type.StartsWith(".", StringComparison.Ordinal)) type = type.Substring(1);
+            return string.IsNullOrWhiteSpace(SafeGet(row, health))
+                && string.Equals(NormalizeCell(SafeGet(row, resolution)), TARGET_RESOLUTION, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(NormalizeCell(SafeGet(row, streamFab)), TARGET_STREAMFAB, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(type, TARGET_FILE_TYPE, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(SafeGet(row, directory))
+                && !string.IsNullOrWhiteSpace(SafeGet(row, title));
         }
 
         /// <summary>

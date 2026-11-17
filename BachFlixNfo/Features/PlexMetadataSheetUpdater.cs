@@ -103,7 +103,7 @@ namespace BachFlixNfo.Features
             int recordedSourceCol = headers.GetRequiredIndex("Recorded Source");
             int contentRatingCol = headers.GetRequiredIndex("Content Rating", "Plex Content Rating");
             int plexSyncHashCol = headers.GetRequiredIndex("Plex Sync Hash");
-            int titleCol = headers.FindIndex("IMDB Title", "Clean Title", "Title", "Auto Title");
+            int titleCol = headers.FindIndex("IMDB Title", "Clean Title", "Title");
 
             if (tagsCol < 0 && nfoBodyCol < 0)
                 throw new Exception("Missing required Movies column for Plex labels: Tags / Tag / Labels / Plex Labels, or NFO Body with <tag> values.");
