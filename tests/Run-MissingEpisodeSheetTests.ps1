@@ -10,7 +10,7 @@ $out = Join-Path $PSScriptRoot 'bin/MissingEpisodeSheets'
 New-Item -ItemType Directory -Force $out | Out-Null
 $relative = @(
     'packages/Newtonsoft.Json.13.0.3/lib/net45/Newtonsoft.Json.dll',
-    'packages/RestSharp.106.11.4/lib/net452/RestSharp.dll',
+    'packages/RestSharp.106.15.0/lib/net452/RestSharp.dll',
     'packages/Google.Apis.Core.1.68.0/lib/netstandard2.0/Google.Apis.Core.dll',
     'packages/Google.Apis.1.68.0/lib/netstandard2.0/Google.Apis.dll',
     'packages/Google.Apis.Sheets.v4.1.48.0.2037/lib/net45/Google.Apis.Sheets.v4.dll'

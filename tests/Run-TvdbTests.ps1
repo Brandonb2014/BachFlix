@@ -9,7 +9,7 @@ if (!$Compiler) {
 $out = Join-Path $PSScriptRoot 'bin'
 New-Item -ItemType Directory -Force $out | Out-Null
 $json = Join-Path $repo 'packages/Newtonsoft.Json.13.0.3/lib/net45/Newtonsoft.Json.dll'
-$rest = Join-Path $repo 'packages/RestSharp.106.11.4/lib/net452/RestSharp.dll'
+$rest = Join-Path $repo 'packages/RestSharp.106.15.0/lib/net452/RestSharp.dll'
 Copy-Item $json,$rest $out -Force
 & $Compiler /nologo /target:exe /langversion:7.3 "/out:$out/TvdbApiTests.exe" "/reference:$json" "/reference:$rest" /reference:Microsoft.CSharp.dll (Join-Path $repo 'BachFlixNfo/TvdbApi.cs') (Join-Path $repo 'BachFlixNfo/Helpers/ApiRetry.cs') (Join-Path $repo 'BachFlixNfo/Helpers/LocalEnvironment.cs') (Join-Path $PSScriptRoot 'TvdbApiTests.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Test compilation failed.' }

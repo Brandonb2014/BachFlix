@@ -9,7 +9,7 @@ if (!$Compiler) {
 $out = Join-Path $PSScriptRoot 'bin'
 New-Item -ItemType Directory -Force $out | Out-Null
 $json = Join-Path $repo 'packages/Newtonsoft.Json.13.0.3/lib/net45/Newtonsoft.Json.dll'
-$rest = Join-Path $repo 'packages/RestSharp.106.11.4/lib/net452/RestSharp.dll'
+$rest = Join-Path $repo 'packages/RestSharp.106.15.0/lib/net452/RestSharp.dll'
 Copy-Item $json,$rest $out -Force
 $sources = @('BachFlixNfo/TvdbApi.cs', 'BachFlixNfo/EmbyApi.cs', 'BachFlixNfo/Helpers/ApiRetry.cs', 'BachFlixNfo/Helpers/LocalEnvironment.cs', 'BachFlixNfo/Helpers/SheetHeaderMapping.cs', 'BachFlixNfo/Features/MissingEpisodePreview.cs', 'BachFlixNfo/Features/MissingEpisodeWorkflow.cs', 'tests/MissingEpisodeTests.cs', 'tests/MissingEpisodeWorkflowTests.cs') | ForEach-Object { Join-Path $repo $_ }
 & $Compiler /nologo /target:exe /langversion:7.3 "/out:$out/MissingEpisodeTests.exe" "/reference:$json" "/reference:$rest" /reference:System.Net.Http.dll /reference:Microsoft.CSharp.dll $sources
